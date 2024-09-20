@@ -3,8 +3,11 @@ from twilio.twiml.messaging_response import MessagingResponse
 import os
 from core import FriendGPT
 from dotenv import load_dotenv
+import openai
 
 load_dotenv()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 
