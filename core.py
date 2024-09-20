@@ -4,12 +4,8 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-openai_api_key = os.getenv('OPENAI_API_KEY')
-
+# openai_api_key = os.getenv('OPENAI_API_KEY')
 
 class FriendGPT:
     def __init__(self):
@@ -55,14 +51,14 @@ class FriendGPT:
         return result.content
 
 
-# if __name__ == "__main__":
-#     friend_gpt = FriendGPT()
+if __name__ == "__main__":
+    friend_gpt = FriendGPT()
 
-#     while True:
-#         user_input = input("You: ")
-#         if user_input.lower() in ['exit', 'quit', 'bye']:
-#             print("FriendGPT: Goodbye! It was nice chatting with you.")
-#             break
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ['exit', 'quit', 'bye']:
+            print("FriendGPT: Goodbye! It was nice chatting with you.")
+            break
 
-#         response = friend_gpt.chat(user_input, session_id="user_session_1")
-#         print("FriendGPT:", response)
+        response = friend_gpt.chat(user_input, session_id="user_session_1")
+        print("FriendGPT:", response)
