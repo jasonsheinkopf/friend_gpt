@@ -1,17 +1,27 @@
-import os
 from flask import Flask, request
+from twilio.twiml.messaging_response import MessagingResponse
 
 app = Flask(__name__)
 
+# Root route to handle general access
+@app.route('/')
+def home():
+    return "Welcome to the WhatsApp bot!"
+
+# Route to handle WhatsApp messages
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp_bot():
     print("---- Incoming Twilio Request ----")
     print("Headers: ", request.headers)
     print("Form Data: ", request.form)
     
-    # Return a simple response to check connectivity
-    return "Message received", 200
+    incoming_msg = request.form.get('Body', '').strip()
+
+    # Create a response
+    twilio_resp = MessagingResponse()
+    reply_msg = twilio_resp.message(f"Your message was: {incoming_msg}")
+    
+    return str(twilio_resp), 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Get the port from environment variable or default to 5000
-    app.run(host="0.0.0.0", port=port, debug=True)  # Bind to 0.0.0.0 to accept external requests
+    app.run(debug=True)
