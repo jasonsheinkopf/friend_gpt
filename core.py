@@ -1,18 +1,22 @@
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI()
 
 
 class FriendGPT():
     def chat(self, message):
-        response = openai.Completion.create(
-            engine="davinci",
-            prompt=message,
-            max_tokens=100
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": message},
+            ]
         )
-        return response.choices[0].text.strip()
+        return response.choices[0].message.content
 
+
+# print(FriendGPT().chat('Hello, how are you?'))

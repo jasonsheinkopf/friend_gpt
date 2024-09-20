@@ -25,6 +25,7 @@ def whatsapp_bot():
     # Return the Twilio response as a string to WhatsApp
     return str(twilio_resp), 200
 
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
