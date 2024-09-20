@@ -11,7 +11,7 @@ charset-normalizer==3.3.2
 click==8.1.7
 # decorator @ file:///home/conda/feedstock_root/build_artifacts/decorator_1641555617451/work
 distro==1.9.0
-exceptiongroup @ file:///home/conda/feedstock_root/build_artifacts/exceptiongroup_1720869315914/work
+# exceptiongroup @ file:///home/conda/feedstock_root/build_artifacts/exceptiongroup_1720869315914/work
 executing @ file:///home/conda/feedstock_root/build_artifacts/executing_1725214404607/work
 fastapi==0.115.0
 Flask==3.0.3
