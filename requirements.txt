@@ -20,7 +20,7 @@ h11==0.14.0
 httpcore==1.0.5
 httpx==0.27.2
 idna==3.10
-importlib_metadata @ file:///home/conda/feedstock_root/build_artifacts/importlib-metadata_1726082825846/work
+# importlib_metadata @ file:///home/conda/feedstock_root/build_artifacts/importlib-metadata_1726082825846/work
 ipykernel @ file:///Users/runner/miniforge3/conda-bld/ipykernel_1719845458456/work
 ipython @ file:///home/conda/feedstock_root/build_artifacts/ipython_1725050136642/work
 itsdangerous==2.2.0
