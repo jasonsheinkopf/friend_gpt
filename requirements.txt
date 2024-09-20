@@ -9,7 +9,6 @@ blinker==1.8.2
 certifi==2024.8.30
 charset-normalizer==3.3.2
 click==8.1.7
-debugpy @ file:///Users/runner/miniforge3/conda-bld/debugpy_1725269205925/work
 decorator @ file:///home/conda/feedstock_root/build_artifacts/decorator_1641555617451/work
 distro==1.9.0
 exceptiongroup @ file:///home/conda/feedstock_root/build_artifacts/exceptiongroup_1720869315914/work
