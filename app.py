@@ -38,7 +38,7 @@ async def on_message(message):
     # If it's a message from a server (not DM)
     if message.guild:
         # Say hello to the user in the server
-        response = friend.send_prompt(message.content)
+        response = friend.history_tool_chat(message.content)
         await message.channel.send(response)
     
     # Ensure other commands are processed
