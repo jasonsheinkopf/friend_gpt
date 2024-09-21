@@ -6,20 +6,22 @@ from langchain.schema import AgentFinish, AgentAction
 from langchain.tools.render import render_text_description
 from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage
+# from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents.output_parsers import ReActSingleInputOutputParser
 from langchain_core.exceptions import OutputParserException
 from langchain.tools import Tool, tool
 from typing import List
 import ollama
 import re
+import time
 
 
 class FriendGPT:
     def __init__(self, model_name):
         self.model_name = model_name
         self.tools = []
-        self.history = InMemoryChatMessageHistory()
+        self.history = []
+        self.name = 'FriendGPT'
         self.define_personality()
 
     def define_personality(self):
@@ -43,10 +45,12 @@ class FriendGPT:
                         return context_length
                     
     def update_history(self, query, result):
-        self.history.add_user_message(query)
-        self.history.add_ai_message(result.content)
+        '''Update the chat history with the response info'''
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        self.history.append(('user', timestamp, query))
+        self.history.append((self.name, timestamp, result.content))
 
-    def find_tool_by_name(tools: List[Tool], tool_name: str) -> Tool:
+    def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
         for t in tools:
             if t.name == tool_name:
                 return t
@@ -59,6 +63,11 @@ class FriendGPT:
         self.token_counts['context_fill'] = int(self.token_counts['total_tokens']) / self.token_counts['context_length']
         for k, v in self.token_counts.items():
             print(f"{k}: {v}")
+
+    def format_history(self):
+        for line in self.history:
+            print(line)
+        return '\n'.join([f"{display_name} ({timestamp}): {message}" for display_name, timestamp, message in self.history])
 
     def history_tool_chat(self, query: str):
         prompt_template = '''
@@ -109,7 +118,7 @@ class FriendGPT:
             {
                 "input": lambda x: x["input"],
                 "agent_scratchpad": lambda x: format_log_to_str(x["agent_scratchpad"]),
-                "chat_history": lambda x: "\n".join([m.to_string() for m in x["chat_history"]]),
+                "chat_history": lambda x: self.format_history(),
                 "personality": lambda x: x["personality"],
                 # "scenario": lambda x: x["scenario"]
             }
@@ -122,7 +131,7 @@ class FriendGPT:
             result = agent.invoke(
                 {
                     "input": query,
-                    "chat_history": self.history.messages,
+                    "chat_history": self.format_history(),
                     "personality": self.personality,
                     "agent_scratchpad": intermediate_steps,
                     # "scenario": st.session_state.get('scenario', '')
@@ -132,8 +141,8 @@ class FriendGPT:
             try:
                 agent_step = ReActSingleInputOutputParser().parse(result.content)
             except OutputParserException:
-                print(f'Error parsing output: {result.content}')
-                return result.content
+                print(f'### Parsing Error ###')
+                break
 
             if isinstance(agent_step, AgentAction):
                 tool_name = agent_step.tool
@@ -147,9 +156,10 @@ class FriendGPT:
                 print(f'Observation: {observation}')
                 intermediate_steps.append((agent_step, str(observation)))
 
+        print('User:', query)
+
         if isinstance(agent_step, AgentFinish):
             print('### Agent Finish ###')
-            print(agent_step)
             agent_thought = agent_step.log
             match = re.search(r'(?<=Thought:)(.*?)(?=Final Answer:)', agent_thought, re.DOTALL)
             if match:
@@ -158,11 +168,13 @@ class FriendGPT:
             else:
                 thought = ''
             final_response = agent_step.return_values['output']
-            print(final_response)
-
-            self.update_history(query, result)
-
+            # print('Agent:', final_response)
+            self.update_history(query, final_response)
             return final_response
+        else:
+            # print('Agent:', result.content)
+            self.update_history(query, result)
+        return result.content
 
     # def send_prompt(self, message):
     #     prompt_template = ChatPromptTemplate(self.template)
