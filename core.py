@@ -5,6 +5,8 @@ from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.schema import AgentFinish, AgentAction
 from langchain.tools.render import render_text_description
 from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents.output_parsers import ReActSingleInputOutputParser
 from langchain_core.exceptions import OutputParserException
 from langchain.tools import Tool, tool
@@ -17,7 +19,7 @@ class FriendGPT:
     def __init__(self, model_name):
         self.model_name = model_name
         self.tools = []
-        self.history = ChatMessageHistory()
+        self.history = InMemoryChatMessageHistory()
         self.define_personality()
 
     def define_personality(self):
@@ -107,7 +109,7 @@ class FriendGPT:
             {
                 "input": lambda x: x["input"],
                 "agent_scratchpad": lambda x: format_log_to_str(x["agent_scratchpad"]),
-                "chat_history": lambda x: x["chat_history"],
+                "chat_history": lambda x: "\n".join([m.to_string() for m in x["chat_history"]]),
                 "personality": lambda x: x["personality"],
                 # "scenario": lambda x: x["scenario"]
             }
