@@ -1,37 +1,55 @@
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
+import discord
+from discord.ext import commands
 import os
-from core import FriendGPT
 from dotenv import load_dotenv
-import openai
 
+from core import FriendGPT
+
+# Load the environment variables
 load_dotenv()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+models = ['llama3.1:8b', 'gemma2:9b']
+friend = FriendGPT(models[0])
 
-app = Flask(__name__)
+# Get the bot token from environment variables
+bot_token = os.getenv("DISCORD_TOKEN")
 
-# Initialize the FriendGPT object globally
-friend_gpt = FriendGPT()
+# Define intents
+intents = discord.Intents.default()
+intents.message_content = True  # Required for reading message content in servers
+intents.guilds = True
+intents.members = True  # Allows handling members
 
-@app.route('/whatsapp', methods=['POST'])
-def whatsapp_bot():
-    # Get the incoming message body from WhatsApp
-    incoming_msg = request.form.get('Body', '').strip()
+# Initialize the bot with the proper intents
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Event: When the bot is ready
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+
+# Event: On receiving a message
+@bot.event
+async def on_message(message):
+    # Ignore messages from the bot itself
+    if message.author == bot.user:
+        return
     
-    # Call FriendGPT to generate a response
-    gpt_response = friend_gpt.chat(incoming_msg)
+    # If it's a message from a server (not DM)
+    if message.guild:
+        # Say hello to the user in the server
+        response = friend.send_prompt(message.content)
+        await message.channel.send(response)
     
-    # Create a Twilio response object
-    twilio_resp = MessagingResponse()
+    # Ensure other commands are processed
+    await bot.process_commands(message)
 
-    # Add the GPT response as the reply message
-    twilio_resp.message(gpt_response)
+# A sample command for sending a DM
+@bot.command()
+async def senddm(ctx, user: discord.User, *, message):
+    """Command to send a DM to a specific user."""
+    await user.send(message)
+    await ctx.send(f"Sent a message to {user.name}.")
 
-    # Return the Twilio response as a string to WhatsApp
-    return str(twilio_resp), 200
-
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+# Run the bot with your token
+bot.run(bot_token)
