@@ -9,7 +9,7 @@ from tools import summarize_chat, get_magic_number
 # Load the environment variables
 load_dotenv()
 
-models = ['llama3.1:8b', 'gemma2:9b']
+models = ['llama3.1:8b', 'gemma2:9b', 'phi3:latest']
 tools = [summarize_chat, get_magic_number]
 friend = FriendGPT(models[1], tools)
 
