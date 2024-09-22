@@ -4,12 +4,14 @@ import os
 from dotenv import load_dotenv
 
 from core import FriendGPT
+from tools import summarize_chat, get_magic_number
 
 # Load the environment variables
 load_dotenv()
 
 models = ['llama3.1:8b', 'gemma2:9b']
-friend = FriendGPT(models[0])
+tools = [summarize_chat, get_magic_number]
+friend = FriendGPT(models[1], tools)
 
 # Get the bot token from environment variables
 bot_token = os.getenv("DISCORD_TOKEN")

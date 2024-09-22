@@ -14,12 +14,18 @@ from typing import List
 import ollama
 import re
 import time
+from langchain_core.pydantic_v1 import BaseModel, Field
+import json
+import langchain
+
+langchain.debug = True
 
 
 class FriendGPT:
-    def __init__(self, model_name):
+    def __init__(self, model_name, tools):
         self.model_name = model_name
-        self.tools = []
+        self.tools = tools
+        self.tool_names = ", ".join([t.name for t in self.tools])
         self.history = []
         self.name = 'FriendGPT'
         self.define_personality()
@@ -28,37 +34,30 @@ class FriendGPT:
     def set_prompt_template(self):
         self.prompt_template = '''
             You are chatting with friend(s) on Discord, so the responses are usually one line and the chat history with the current user or thred is {chat_history}.
-            Your personality is: {personality}. You always stay in character and never break the fourth wall.
 
-            Your response is to either use an Action or provide a Final Answer but not both.
-            The following tools are available to you:
+            Your personality is: {personality}.
+
+            The only tools you have access to are:
 
             {tools}
-            
-            ---- Action Format ----
-            If you want to perform an Action, you must include the following:
-            Thought: think carefully about what you want to do
-            Action: you must include the action you want to take, should be one of [{tool_names}]
-            Action Input: you must include the input to the tool.
 
-            ---- Example Action Response ----
-            Thought: I need to use a tool called example_action
-            Action: example_action
-            Action Input: example string argument for action function call
-
-            ---- Final Answer Format ----
-            To provide a Final Answer, reply in this exact format with no exceptions:
-            Thought: you must say what you are thinking just before you provide your final answer
-            Final Answer: your final answer. If not using a tool, you must provide a final answer
-
-            ---- Example Final Answer Response ----
-            Thought: The human wants me to tell them how to get to the store
-            Final Answer: Turn left at the stop sign and the store will be on your right
+            The tools available to you are: {tool_names}. You can use these tools to help you respond to the user.
+            Use this information to decide if you need to use a tool or not: {last_thought}.
+            If you don't need to use a tool, set "use_tool" to false.
 
             Begin!
 
             User Input: {input}
-            Thought: {agent_scratchpad}
+
+            Reply in this exact JSON format where all values are strings. Do not include comments in your reply. Don't include anything outside the curly braces:
+
+            {{
+                "thought": "{last_thought}", # the user will not see your thought
+                "use_tool": "false", # if you must use a tool, then set this to "true"
+                "tool_name": "tool_name", # exact name of the tool to use from this list {tool_names}
+                "tool_input": "string argument to be passed to the tool" # string match the tool's docsstring requirements
+                "response": "string response to the user" # if a tool is used, this response will be ignored
+            }}
             '''
 
     def define_personality(self):
@@ -81,11 +80,12 @@ class FriendGPT:
                     if context_length is not None:
                         return context_length
                     
-    def update_history(self, query, result):
+    def update_history(self, query, response):
         '''Update the chat history with the response info'''
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         self.history.append(('user', timestamp, query))
-        self.history.append((self.name, timestamp, result.content))
+        self.history.append((self.name, timestamp, response))
+        print('history updated')
 
     def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
         for t in tools:
@@ -102,96 +102,89 @@ class FriendGPT:
             print(f"{k}: {v}")
 
     def format_history(self):
-        for line in self.history:
-            print(line)
         return '\n'.join([f"{display_name} ({timestamp}): {message}" for display_name, timestamp, message in self.history])
 
     def history_tool_chat(self, query: str):
         prompt = PromptTemplate.from_template(template=self.prompt_template).partial(
             tools=render_text_description(self.tools),
-            tool_names=", ".join([t.name for t in self.tools]),
+            tool_names=self.tool_names,
         )
 
         llm = ChatOllama(model=self.model_name)
 
-        intermediate_steps = []
+        intermediate_steps = ['a careful thought about what you want to do']
 
         agent = (
             {
                 "input": lambda x: x["input"],
-                "agent_scratchpad": lambda x: format_log_to_str(x["agent_scratchpad"]),
+                "agent_scratchpad": lambda x: x["agent_scratchpad"],
                 "chat_history": lambda x: self.format_history(),
                 "personality": lambda x: x["personality"],
+                "thought": lambda x: x["thought"],
+                "last_thought": lambda x: x["last_thought"],
             }
             | prompt
             | llm
         )
 
-        agent_step = ''
-        while not isinstance(agent_step, AgentFinish):
+        is_response = False
+        while not is_response:
             result = agent.invoke(
                 {
                     "input": query,
                     "chat_history": self.format_history(),
                     "personality": self.personality,
                     "agent_scratchpad": intermediate_steps,
+                    "thought": "0. I'm thinking about what to do next...",
+                    "last_thought": intermediate_steps[-1],
                 }
             )
 
             try:
-                agent_step = ReActSingleInputOutputParser().parse(result.content)
-            except OutputParserException:
-                print(f'### Parsing Error ###')
-                break
+                # Regular expression to match the JSON part
+                json_pattern = r'\{.*?\}'
 
-            if isinstance(agent_step, AgentAction):
-                tool_name = agent_step.tool
+                # Extract the JSON string
+                match = re.search(json_pattern, result.content, re.DOTALL)
+
+                if match:
+                    json_str = match.group(0)
+                    response_dict = json.loads(json_str)
+                else:
+                    print(f'Error parsing output: {result.content}')
+                    continue
+            except json.JSONDecodeError:
+                print(f'Error parsing output: {result.content}')
+                continue
+
+            print(response_dict)
+
+            if 'use_tool' in response_dict.keys() and str(response_dict['use_tool'])[0].lower() == 't':
+                if response_dict['tool_name'] not in self.tool_names:
+                    continue
+                tool_name = response_dict['tool_name']
                 tool_to_use = self.find_tool_by_name(self.tools, tool_name)
-                tool_input = agent_step.tool_input
+                tool_input = response_dict['tool_input']
                 print('### Tool Action ###')
                 print(f'Tool: {tool_name}')
                 print(f'Tool Input: {tool_input}')
 
-                observation = tool_to_use.func(str(tool_input))
-                print(f'Observation: {observation}')
-                intermediate_steps.append((agent_step, str(observation)))
-
-        print('User:', query)
-
-        if isinstance(agent_step, AgentFinish):
-            print('### Agent Finish ###')
-            agent_thought = agent_step.log
-            match = re.search(r'(?<=Thought:)(.*?)(?=Final Answer:)', agent_thought, re.DOTALL)
-            if match:
-                thought = match.group(1).strip()
-                print(thought)
+                observation = tool_to_use.func(agent=self, tool_input=str(tool_input))
+                print(f'{tool_name} returned: {observation}')
+                if 'thought' in response_dict.keys():
+                    intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {response_dict["thought"]}\n')
+                intermediate_steps.append(f'{len(intermediate_steps)}. I now have the answer to the question and am ready to reply!: {str(observation)}\n')
+                print('### Intermediate Steps ###')
+                print(intermediate_steps)
             else:
-                thought = ''
-            final_response = agent_step.return_values['output']
-            # print('Agent:', final_response)
-            self.update_history(query, final_response)
-            return final_response
-        else:
-            # print('Agent:', result.content)
-            self.update_history(query, result)
-        return result.content
+                is_response = True
 
-    # def send_prompt(self, message):
-    #     prompt_template = ChatPromptTemplate(self.template)
-    #     llm = ChatOllama(model=self.model_name)
+                print('User:', query)
 
-    #     # Format the prompt with the user's message
-    #     formatted_prompt = prompt_template.format(input=message)
-
-    #     # Print the exact prompt being sent to the LLM
-    #     print("Prompt being sent to the LLM:")
-    #     print(formatted_prompt)
-
-    #     agent = prompt_template | llm
-    #     result = agent.invoke(
-    #         {
-    #             'input': message,
-    #         }
-    #     )
-    #     self.get_token_count(result)
-    #     return result.content
+                print('### Agent Finish ###')
+                agent_thought = response_dict['thought']
+                final_response = response_dict['response']
+                print('Agent Thought:', agent_thought)
+                print('Agent:', final_response)
+                self.update_history(query, final_response)
+                return final_response
