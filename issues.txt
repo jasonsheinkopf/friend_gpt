@@ -1,0 +1,10 @@
+timestamps
+-messages to the bot use discord timestamps
+-messages from the bot use local timestamps
+-sometimes bot replis 'before' it gets the message and it goes into the history backwards
+-the reason to use discord timestamps for incoming is so that when we return from offline we can see messages
+SOl'N only add messages that comes from discord...wait until bot's reply message routes through discord to Logged
+
+tools
+-flake
+-json doesn't reliably decide not to use a tool

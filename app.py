@@ -11,7 +11,7 @@ load_dotenv()
 
 models = ['llama3.1:8b', 'gemma2:9b', 'phi3:latest']
 tools = [summarize_chat, get_magic_number]
-friend = FriendGPT(models[1], tools)
+db_path = 'chat_history.db'
 
 # Get the bot token from environment variables
 bot_token = os.getenv("DISCORD_TOKEN")
@@ -25,10 +25,13 @@ intents.members = True  # Allows handling members
 # Initialize the bot with the proper intents
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+friend = FriendGPT(models[1], tools, db_path)
+
 # Event: When the bot is ready
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+    friend.name = bot.user.name
 
 # Event: On receiving a message
 @bot.event
@@ -40,8 +43,12 @@ async def on_message(message):
     # If it's a message from a server (not DM)
     if message.guild:
         # Say hello to the user in the server
-        response = friend.history_tool_chat(message.content)
+        response = friend.history_tool_chat(message)
         await message.channel.send(response)
+    # if its a DM
+    else:
+        response = friend.history_tool_chat(message)
+        await message.author.send(response)
     
     # Ensure other commands are processed
     await bot.process_commands(message)
