@@ -43,18 +43,20 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    response = ''
-    # If it's a message from a server (not DM)
-    if message.guild:
-        # Say hello to the user in the server
-        while response == '':
-            response = friend.reply_to_message(message)
-        await message.channel.send(response)
-    # if its a DM
-    else:
-        while response == '':
-            response = friend.reply_to_message(message)
-        await message.author.send(response)
+    # Show typing indicator while generating a response
+    async with message.channel.typing():
+        response = ''
+        # If it's a message from a server (not DM)
+        if message.guild:
+            # Generate a response from FriendGPT
+            while response == '':
+                response = friend.reply_to_message(message)
+            await message.channel.send(response)
+        # If it's a DM
+        else:
+            while response == '':
+                response = friend.reply_to_message(message)
+            await message.author.send(response)
 
     # Ensure other commands are processed
     await bot.process_commands(message)
