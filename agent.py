@@ -8,6 +8,7 @@ import json
 import datetime
 import discord
 from memory.memory import DB
+from langchain.tools import Tool
 
 # langchain.debug = True
 
