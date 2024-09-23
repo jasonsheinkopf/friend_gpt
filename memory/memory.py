@@ -1,6 +1,5 @@
 import sqlite3
 import discord
-import datetime
 
 
 class DB:
@@ -85,73 +84,6 @@ class DB:
             ),
         )
         self.conn.commit()
-        print('Message to bot added to DB')
-
-    # def retrieve_formatted_history(self, channel, bot_name):
-    #     # Retrieve the chat history for the specified channel
-    #     self.cursor.execute(
-    #         """
-    #         SELECT *
-    #         FROM chat_history
-    #         WHERE channel = ?
-    #         ORDER BY timestamp ASC
-    #     """,
-    #         (channel,),
-    #     )
-
-    #     # Fetch all the rows
-    #     rows = self.cursor.fetchall()
-
-    #     # Initialize an empty list to store the formatted lines
-    #     formatted_history = []
-
-    #     # Loop through each row and format it
-    #     for row in rows:
-    #         (
-    #             timestamp,
-    #             sender_user,
-    #             sender_nick,
-    #             recipient_user,
-    #             recipient_nick,
-    #             private,
-    #             message,
-    #         ) = row
-
-    #         # Modify sender and recipient formatting if they are equal to the bot name
-    #         sender_info = (
-    #             f"{sender_nick}"
-    #             if sender_nick == bot_name
-    #             else f"{sender_nick} ({sender_user})"
-    #         )
-    #         recipient_info = (
-    #             f"{recipient_nick}"
-    #             if recipient_nick == bot_name
-    #             else f"{recipient_nick} ({recipient_user})"
-    #         )
-    #         if private != 1:
-    #             recipient_info = f"Channel {str(channel)[-4:]}"
-
-    #         formatted_line = (
-    #             f"[{timestamp}] {sender_info} said to {recipient_info}: {message}"
-    #         )
-
-    #         # Append the formatted line to the list
-    #         formatted_history.append(formatted_line)
-
-    #     # Join the list into a multiline string with newlines
-    #     return "\n".join(formatted_history)
-    
-    # def get_datetime_from_snowflake(self, snowflake_id):
-    #     # Discord epoch: 2015-01-01T00:00:00Z (in milliseconds)
-    #     discord_epoch = 1420070400000
-    #     # Extract the timestamp part of the snowflake (first 42 bits)
-    #     timestamp_ms = (snowflake_id >> 22) + discord_epoch
-    #     # Convert to seconds and create a UTC datetime object
-    #     timestamp_s = timestamp_ms / 1000
-    #     utc_time = datetime.datetime.utcfromtimestamp(timestamp_s)
-    #     # Format the datetime object as 'YYYY-MM-DD HH:MM:SS'
-    #     formatted_time = utc_time.strftime('%Y-%m-%d %H:%M:%S')
-    #     return formatted_time
 
     def get_formatted_chat_history(self, channel_id, guild_id, bot_name, is_dm, num_messages=10):
         # SQL query to fetch the last num_messages from the chat history
