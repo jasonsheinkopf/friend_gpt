@@ -3,55 +3,59 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 
-from agent import FriendGPT
-from memory.memory import DB
+from core.agent import FriendGPT
+from config.defaults import get_cfg
 
-from tools import summarize_chat, get_magic_number
+import inspect
+from langchain.tools import BaseTool
+import toolbox
 
 # Load the environment variables
 load_dotenv()
 
-models = ['llama3.1:8b', 'gemma2:9b', 'phi3:latest']
-tools = [summarize_chat, get_magic_number]
+# Get the config from config/defaults.py
+cfg = get_cfg()
 
-# Get the bot token from environment variables
-bot_token = os.getenv("DISCORD_TOKEN")
+# Get all the tools from the toolbox for the agent
+tools = [member for name, member in inspect.getmembers(toolbox) if isinstance(member, BaseTool)]
 
-# Define intents
+# Define intents and initialize
 intents = discord.Intents.default()
 intents.message_content = True  # Required for reading message content in servers
 intents.guilds = True
 intents.members = True  # Allows handling members
-
-# Initialize the bot with the proper intents
 bot = commands.Bot(command_prefix="!", intents=intents)
-friend = FriendGPT(models[1], tools)
+
+# create an instance of the agent
+friend = FriendGPT(tools, cfg)
 
 # Event: When the bot is ready
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    friend.name = bot.user.name
-    friend.id = bot.user.id
+    # load identity after bot is ready
+    friend.load_identity(bot.user.name, bot.user.id)
 
 # Event: On receiving a message
 @bot.event
 async def on_message(message):
-
     # Ignore messages from the bot itself
     if message.author == bot.user:
         return
-    
+
+    response = ''
     # If it's a message from a server (not DM)
     if message.guild:
         # Say hello to the user in the server
-        response = friend.reply_to_message(message)
+        while response == '':
+            response = friend.reply_to_message(message)
         await message.channel.send(response)
     # if its a DM
     else:
-        response = friend.reply_to_message(message)
+        while response == '':
+            response = friend.reply_to_message(message)
         await message.author.send(response)
-    
+
     # Ensure other commands are processed
     await bot.process_commands(message)
 
@@ -63,4 +67,4 @@ async def on_message(message):
 #     await ctx.send(f"Sent a message to {user.name}.")
 
 # Run the bot with your token
-bot.run(bot_token)
+bot.run(os.getenv("DISCORD_TOKEN"))

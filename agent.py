@@ -7,14 +7,14 @@ import re
 import json
 import datetime
 import discord
-from memory.memory import DB
+from core.memory import DB
 from langchain.tools import Tool
 
 # langchain.debug = True
 
 
 class FriendGPT:
-    def __init__(self, model_name, tools, db_path='memory/full_memory.db'):
+    def __init__(self, model_name, tools, db_path):
         self.model_name = model_name
         self.tools = tools
         self.name = ""
