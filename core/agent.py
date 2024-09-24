@@ -10,6 +10,7 @@ import discord
 from core.memory import CoreMemory
 from langchain.tools import Tool
 import os
+import asyncio
 
 # langchain.debug = True
 
@@ -119,27 +120,42 @@ Begin!
         for k, v in self.token_counts.items():
             print(f"{k}: {v}")
 
-    async def bot_send_message(self, is_dm, message_content, channel_id, user_id=None):
-        """Send a message to a user or channel. If channel, user_id is None."""
+    async def bot_send_message(self, msg_txt, rec_nick, rec_name, rec_id, chan_id, is_dm, guild_id=''):
+        """Send a message to a user or channel."""
         await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
 
-        # if its a DM channel, send to user directly
+        # Define a typing speed (characters per second)
+        typing_speed = self.cfg.TYPING_SPEED
+        typing_duration = len(msg_txt) / typing_speed  # Calculate how long to "type"
+
+        # If it's a DM channel, send to the user directly
         if is_dm:
-            user = await self.bot.fetch_user(user_id)
+            user = await self.bot.fetch_user(rec_id)
             if user:
                 dm_channel = await user.create_dm()
-                await dm_channel.send(message_content)
-        # if it's a guild channel
-        else:
-            channel = self.bot.get_channel(channel_id)
-            # check if its an actual channel
-            if channel:
-                # Fetch the channel object by its ID
-                await channel.send(message_content)
+                async with dm_channel.typing():  # Show typing indicator in the DM channel
+                    await asyncio.sleep(typing_duration)  # Simulate typing based on message length
+                    await dm_channel.send(msg_txt)
             else:
-                print(f"Channel with ID {channel_id} not found.")
+                print(f"User with ID {rec_id} not found.")
+                return
+        # If it's a guild channel send by channel id
+        else:
+            channel = self.bot.get_channel(chan_id)
+            # Check if it's an actual channel
+            if channel:
+                async with channel.typing():  # Show typing indicator in the guild channel
+                    await asyncio.sleep(typing_duration)  # Simulate typing based on message length
+                    await channel.send(msg_txt)
+            else:
+                print(f"Channel with ID {chan_id} not found.")
+                return
 
-    # def reply_to_message(self, message: str):
+        # Add the message to the memory
+        self.core_memory.add_outgoing_to_memory(msg_txt, rec_nick, rec_name, rec_id, chan_id, guild_id, self.name, 
+                                                self.id, self.get_current_utc_datetime(), is_dm
+                                                )
+
     async def bot_receive_message(self, message: str):
         self.core_memory.add_incoming_to_memory(message, self.name, self.id, self.get_current_utc_datetime())
         prompt = PromptTemplate.from_template(template=self.prompt_template).partial(
@@ -242,17 +258,15 @@ Begin!
 
         # add agent response to memory
         is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False
-        self.core_memory.add_outgoing_to_memory(
-            out_message_content=final_response,
-            recipient_display_name=message.author.display_name,
-            recipient_name=message.author.name,
-            recipient_id=message.author.id,
-            channel_id=message.channel.id,
-            guild_id='' if is_dm else message.guild.id,
-            bot_name=self.name,
-            bot_id=self.id,
-            sent_time=self.get_current_utc_datetime(),
-            is_dm=is_dm
-        )
+    
         # send message to discord
-        await self.bot_send_message(is_dm, final_response, message.channel.id, message.author.id)
+        await self.bot_send_message(
+            msg_txt=final_response,
+            rec_nick=message.author.display_name,
+            rec_name=message.author.name,
+            rec_id=message.author.id,
+            chan_id=message.channel.id,
+            is_dm=is_dm,
+            guild_id='' if is_dm else message.guild.id
+        )
+

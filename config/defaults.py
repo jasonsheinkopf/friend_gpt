@@ -28,6 +28,8 @@ _C.USE_STARTER_PERSONALITY = False
 
 _C.PERSONALITY_PATH = 'memories/personality.txt'
 
+_C.TYPING_SPEED = 30
+
 def get_cfg():
     """
     Get a copy of the config node.
