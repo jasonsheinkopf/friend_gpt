@@ -1,8 +1,0 @@
-tools
--flakey
--json doesn't reliably decide not to use a tool
--change avatar w SD when changing PERSONALITY
--generate avatae from beginning.
-
-Rag
--ingestion llama index llama parser

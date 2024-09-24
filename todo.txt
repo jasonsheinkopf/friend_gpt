@@ -1,0 +1,14 @@
+tools
+-json doesn't reliably decide not to use a tool
+
+Rag
+-ingestion llama index llama parser
+
+database
+-table for people
+-table for chunks
+-table for vector db
+
+News
+pip install asknews
+https://my.asknews.app/en/login?returnTo=%2Fen
