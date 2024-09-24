@@ -30,34 +30,45 @@ class FriendGPT:
         self.personality = self.cfg.PERSONALITY.format(discord_bot_username=name)
 
     def set_prompt_template(self):
+
         self.prompt_template = '''
-You are chatting with friend(s) on Discord, so the responses are usually one line and the chat history with the current user or thred is {chat_history}.
+You are an agent chatting with friend(s) on Discord with this recent chat history:
 
-Your personality is: {personality}.
+{chat_history}.
 
-Your current LLM model is: {current_model}, but you can change it to one of {available_models} using the "change_model" tool.
+Your personality is:
 
-The only tools you have access to are:
+{personality}.
+
+Your current LLM model is:
+
+{current_model}
+
+The LLM models available to you are:
+
+{available_models}
+
+You have the following tools available to you. You can use these tools to help you respond to the user:
 
 {tools}
 
-The tools available to you are: {tool_names}. You can use these tools to help you respond to the user.
-Use this information to decide if you need to use a tool or not: {last_thought}.
-If you don't need to use a tool, set "use_tool" to false.
+To decide whether to use a tool or simply respond to the user, consider your thought history:
 
-Begin!
+{agent_scratchpad}.
+
+Reply in the following properly formatted JSON format where all keys and values are strings:
+
+{{
+    "thought": "Write your thoughts about what you should do here. Include whether a tool has already been used.",
+    "action": one of "respond, use_tool", # consider your last thought {last_thought}
+    "tool_name": one of {tool_names},
+    "tool_input": "tool input argument matching the tool's docsstring requirements",
+    "response": "string response to the user"
+}}
 
 User Input: {input}
 
-Reply in this exact JSON format where all values are strings. Do not include comments in your reply. Don't include anything outside the curly braces:
-
-{{
-    "thought": "{last_thought}", # the user will not see your thought
-    "use_tool": "false", # if you must use a tool, then set this to "true"
-    "tool_name": "tool_name", # exact name of the tool to use from this list {tool_names}
-    "tool_input": "string argument to be passed to the tool" # string match the tool's docsstring requirements
-    "response": "string response to the user" # if a tool is used, this response will be ignored
-}}
+Begin!
 '''
 
     def get_context_length(self, d):
@@ -122,8 +133,8 @@ Reply in this exact JSON format where all values are strings. Do not include com
             | llm
         )
 
-        is_response = False
-        while not is_response:
+        action = ""
+        while action != "respond":
             result = agent.invoke(
                 {
                     "input": message.content,
@@ -147,52 +158,65 @@ Reply in this exact JSON format where all values are strings. Do not include com
                 if match:
                     json_str = match.group(0)
                     response_dict = json.loads(json_str)
+                # reprompt LLM if JSON not found
                 else:
                     print(f'Error parsing output: {result.content}')
                     continue
+            # reprompt LLM if JSON not decodable
             except json.JSONDecodeError:
                 print(f'Error parsing output: {result.content}')
                 continue
 
+            print('Model replied with:')
             print(response_dict)
 
-            if 'use_tool' in response_dict.keys() and str(response_dict['use_tool'])[0].lower() == 't':
+            action = response_dict['action']
+
+            # use tool if called
+            if response_dict['action'] == 'use_tool':
                 if response_dict['tool_name'] not in self.tool_names:
                     continue
                 tool_name = response_dict['tool_name']
                 tool_to_use = self.find_tool_by_name(self.tools, tool_name)
                 tool_input = response_dict['tool_input']
-                print('### Tool Action ###')
-                print(f'Tool: {tool_name}')
-                print(f'Tool Input: {tool_input}')
-
+                # call the tool function
                 observation = tool_to_use.func(agent=self, tool_input=str(tool_input))
-                print(f'{tool_name} returned: {observation}')
-                if 'thought' in response_dict.keys():
-                    intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {response_dict["thought"]}\n')
-                intermediate_steps.append(f'{len(intermediate_steps)}. I now have the answer to the question and am ready to reply!: {str(observation)}\n')
-                print('### Intermediate Steps ###')
-                print(intermediate_steps)
-            else:
-                is_response = True
+                if observation.split()[0].lower() == 'success!':
+                    tool_result = 'The tool was successful. I should not use the tool again. I am ready to respond.'
+                else:
+                    tool_result = 'The tool did not work. I should respond to the user and tell them about the error.'
+   
+                # add tool output to scratchpad
+                intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {response_dict["thought"]}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Input: {tool_input}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {observation}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Post Tool Thought: {tool_result}')
 
-                print('### Agent Finish ###')
-                agent_thought = response_dict['thought']
-                final_response = response_dict['response']
-                print('Agent Thought:', agent_thought)
-                print('Agent:', final_response)
-                # self.update_memory(message, final_response)
-                is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False
-                self.core_memory.add_outgoing_to_memory(
-                    out_message_content=final_response,
-                    recipient_display_name=message.author.display_name,
-                    recipient_name=message.author.name,
-                    recipient_id=message.author.id,
-                    channel_id=message.channel.id,
-                    guild_id='' if is_dm else message.guild.id,
-                    bot_name=self.name,
-                    bot_id=self.id,
-                    sent_time=self.get_current_utc_datetime(),
-                    is_dm=is_dm
-                )
-                return final_response
+                # print intermediate steps
+                print('\n'.join(intermediate_steps))
+
+        # add agent response to scratchpad
+        agent_thought = response_dict['thought']
+        final_response = response_dict['response']
+        intermediate_steps.append(f'{len(intermediate_steps)}. Agent Final Thought: {agent_thought}')
+        intermediate_steps.append(f'{len(intermediate_steps)}. Agent Response: {final_response}')
+
+        # print final response
+        print('\n'.join(intermediate_steps))
+
+        # add agent response to memory
+        is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False
+        self.core_memory.add_outgoing_to_memory(
+            out_message_content=final_response,
+            recipient_display_name=message.author.display_name,
+            recipient_name=message.author.name,
+            recipient_id=message.author.id,
+            channel_id=message.channel.id,
+            guild_id='' if is_dm else message.guild.id,
+            bot_name=self.name,
+            bot_id=self.id,
+            sent_time=self.get_current_utc_datetime(),
+            is_dm=is_dm
+        )
+        return final_response
