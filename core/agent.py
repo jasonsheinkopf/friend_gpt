@@ -24,10 +24,12 @@ class FriendGPT:
         self.chat_history = ""
         self.set_prompt_template()
         self.core_memory = CoreMemory(cfg.CORE_MEMORY_PATH)
+        self.bot = None
 
-    def load_identity(self, name, id):
-        self.name = name
-        self.id = id
+    def load_identity(self, bot):
+        self.name = bot.user.name
+        self.id = bot.user.id
+        self.bot = bot
         # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
         if self.cfg.USE_STARTER_PERSONALITY:
             self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=name)
@@ -117,7 +119,28 @@ Begin!
         for k, v in self.token_counts.items():
             print(f"{k}: {v}")
 
-    def reply_to_message(self, message: str):
+    async def bot_send_message(self, is_dm, message_content, channel_id, user_id=None):
+        """Send a message to a user or channel. If channel, user_id is None."""
+        await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
+
+        # if its a DM channel, send to user directly
+        if is_dm:
+            user = await self.bot.fetch_user(user_id)
+            if user:
+                dm_channel = await user.create_dm()
+                await dm_channel.send(message_content)
+        # if it's a guild channel
+        else:
+            channel = self.bot.get_channel(channel_id)
+            # check if its an actual channel
+            if channel:
+                # Fetch the channel object by its ID
+                await channel.send(message_content)
+            else:
+                print(f"Channel with ID {channel_id} not found.")
+
+    # def reply_to_message(self, message: str):
+    async def bot_receive_message(self, message: str):
         self.core_memory.add_incoming_to_memory(message, self.name, self.id, self.get_current_utc_datetime())
         prompt = PromptTemplate.from_template(template=self.prompt_template).partial(
             tools=render_text_description(self.tools),
@@ -231,4 +254,5 @@ Begin!
             sent_time=self.get_current_utc_datetime(),
             is_dm=is_dm
         )
-        return final_response
+        # send message to discord
+        await self.bot_send_message(is_dm, final_response, message.channel.id, message.author.id)

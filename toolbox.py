@@ -9,7 +9,7 @@ def change_personality(agent, tool_input: str) -> str:
     '''
     try:
         agent.personality = tool_input.strip()
-        response = f'Success! The tool has successfully changed the personality to {agent.personality}.'
+        response = f"Success! The tool has successfully changed the {agent.name}'s personality to {agent.personality}."
         with open(agent.cfg.PERSONALITY_PATH, 'w') as f:
             f.write(agent.personality)
         print(f"\nPersonality changed to {agent.personality}\n")
@@ -28,7 +28,7 @@ def embellish_personality(agent, tool_input: str) -> str:
         # add one line to the end of personality file
         with open(agent.cfg.PERSONALITY_PATH, 'a') as f:
             f.write(f"\n{tool_input.strip()}")
-        response = f'Success! The tool has successfully changed the personality to {agent.personality}.'
+        response = f"Success! The tool has successfully added {agent.personality} to {agent.name}'s personality."
         print(f"\nPersonality changed to {agent.personality}\n")
     except Exception as e:
         response = f'Error changing the personality: {e}'

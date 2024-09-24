@@ -34,7 +34,7 @@ friend = FriendGPT(tools, cfg)
 async def on_ready():
     print(f"Logged in as {bot.user}")
     # load identity after bot is ready
-    friend.load_identity(bot.user.name, bot.user.id)
+    friend.load_identity(bot)
 
 # Event: On receiving a message
 @bot.event
@@ -42,31 +42,27 @@ async def on_message(message):
     # Ignore messages from the bot itself
     if message.author == bot.user:
         return
+    
+    # Send the message to FriendGPT for processing but don't send any replies
+    await friend.bot_receive_message(message)
 
-    # Show typing indicator while generating a response
-    async with message.channel.typing():
-        response = ''
-        # If it's a message from a server (not DM)
-        if message.guild:
-            # Generate a response from FriendGPT
-            while response == '':
-                response = friend.reply_to_message(message)
-            await message.channel.send(response)
-        # If it's a DM
-        else:
-            while response == '':
-                response = friend.reply_to_message(message)
-            await message.author.send(response)
+    # # Show typing indicator while generating a response
+    # async with message.channel.typing():
+    #     response = ''
+    #     # If it's a message from a server (not DM)
+    #     if message.guild:
+    #         # Generate a response from FriendGPT
+    #         while response == '':
+    #             response = friend.reply_to_message(message)
+    #         await message.channel.send(response)
+    #     # If it's a DM
+    #     else:
+    #         while response == '':
+    #             response = friend.reply_to_message(message)
+    #         await message.author.send(response)
 
     # Ensure other commands are processed
     await bot.process_commands(message)
-
-# A sample command for sending a DM
-# @bot.command()
-# async def senddm(ctx, user: discord.User, *, message):
-#     """Command to send a DM to a specific user."""
-#     await user.send(message)
-#     await ctx.send(f"Sent a message to {user.name}.")
 
 # Run the bot with your token
 bot.run(os.getenv("DISCORD_TOKEN"))
