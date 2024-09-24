@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import discord
 from core.memory import CoreMemory
 from langchain.tools import Tool
+import os
 
 # langchain.debug = True
 
@@ -27,7 +28,16 @@ class FriendGPT:
     def load_identity(self, name, id):
         self.name = name
         self.id = id
-        self.personality = self.cfg.PERSONALITY.format(discord_bot_username=name)
+        # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
+        if self.cfg.USE_STARTER_PERSONALITY:
+            self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=name)
+        else:
+            # create personality text file from starter if it doesn't exist
+            if not os.path.exists(self.cfg.PERSONALITY_PATH):
+                with open(self.cfg.PERSONALITY_PATH, 'w') as f:
+                    f.write(self.personality)
+            with open(self.cfg.PERSONALITY_PATH, 'r') as f:
+                self.personality = f.read()
 
     def set_prompt_template(self):
 
@@ -48,7 +58,7 @@ The LLM models available to you are:
 
 {available_models}
 
-You have the following tools available to you. You can use these tools to help you respond to the user:
+You have the following tools available to you to help you respond to only the most recent user message:
 
 {tools}
 
@@ -56,7 +66,7 @@ To decide whether to use a tool or simply respond to the user, consider your tho
 
 {agent_scratchpad}.
 
-Reply in the following properly formatted JSON format where all keys and values are strings:
+Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
 
 {{
     "thought": "Write your thoughts about what you should do here. Include whether a tool has already been used.",
@@ -115,7 +125,7 @@ Begin!
         )
 
         llm = ChatOllama(model=self.model_name)
-        intermediate_steps = ['a careful thought about what you want to do']
+        intermediate_steps = ['I have to think carefully how to respond to the user']
         self.get_chat_history(message)
 
         agent = (
@@ -166,8 +176,7 @@ Begin!
             except json.JSONDecodeError:
                 print(f'Error parsing output: {result.content}')
                 continue
-
-            print('Model replied with:')
+            print('\nModel Output:')
             print(response_dict)
 
             action = response_dict['action']
@@ -194,6 +203,7 @@ Begin!
                 intermediate_steps.append(f'{len(intermediate_steps)}. Post Tool Thought: {tool_result}')
 
                 # print intermediate steps
+                print('\nIntermediate Steps:')
                 print('\n'.join(intermediate_steps))
 
         # add agent response to scratchpad
@@ -203,6 +213,8 @@ Begin!
         intermediate_steps.append(f'{len(intermediate_steps)}. Agent Response: {final_response}')
 
         # print final response
+        print(f'\n{message.author.display_name}: "{message.content}"')
+        print(f'{self.name}:\n')
         print('\n'.join(intermediate_steps))
 
         # add agent response to memory

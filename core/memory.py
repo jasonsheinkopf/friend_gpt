@@ -58,7 +58,6 @@ class CoreMemory:
             ),
         )
         self.conn.commit()
-        print('Incoming message to bot added to DB')
 
     def add_outgoing_to_memory(self, out_message_content, recipient_display_name, recipient_name, recipient_id, channel_id, guild_id, bot_name, bot_id, sent_time, is_dm):
         """
@@ -150,6 +149,7 @@ class CoreMemory:
     import pandas as pd
 
     def create_df(self):
+        '''Create a pandas DataFrame from the chat history for use externally.'''
         # Execute the query to fetch all rows from the 'chat_history' table
         self.cursor.execute("SELECT * FROM chat_history")
         rows = self.cursor.fetchall()
