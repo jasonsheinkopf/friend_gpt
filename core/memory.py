@@ -86,7 +86,7 @@ class CoreMemory:
         )
         self.conn.commit()
 
-    def get_formatted_chat_history(self, channel_id, guild_id, bot_name, is_dm, num_messages=10):
+    def get_formatted_chat_history(self, channel_id, guild_id, bot_name, is_dm, num_messages):
         # SQL query to fetch the last num_messages from the chat history
         query = """
         SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message

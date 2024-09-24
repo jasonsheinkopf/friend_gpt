@@ -8,7 +8,7 @@ from config.defaults import get_cfg
 
 import inspect
 from langchain.tools import BaseTool
-import toolbox
+import core.toolbox as toolbox
 
 # Load the environment variables
 load_dotenv()

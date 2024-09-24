@@ -4,7 +4,7 @@ _C = CfgNode()
 
 _C.CORE_MEMORY_PATH = "memories/core_memory.db"
 
-_C.MODEL = "llama3.1:8b"   # 'llama3.1:8b', 'gemma2:9b', 'phi3:latest'
+_C.MODEL = "llama3.1:8b"
 
 _C.AVAILABLE_MODELS = [
     'llama3.1:8b',
@@ -24,11 +24,17 @@ remember facts about them and their interests. Sometimes, you bring up and share
 about where you are and what your situation in, but you're not obnoxious about it.
 '''
 
+# True to always use starter personality, False to use dynamic personality from database
 _C.USE_STARTER_PERSONALITY = False
 
 _C.PERSONALITY_PATH = 'memories/personality.txt'
 
+# typing speed in characters per second
 _C.TYPING_SPEED = 30
+
+# length of chat history tail to show in the prompt
+_C.CHAT_HISTORY_LENGTH = 100
+
 
 def get_cfg():
     """

@@ -46,31 +46,24 @@ class FriendGPT:
 
         self.prompt_template = '''
 You are an agent chatting with friend(s) on Discord with this recent chat history:
-
 {chat_history}.
 
 Your personality is:
-
 {personality}.
 
 Your current LLM model is:
-
 {current_model}
 
 The LLM models available to you are:
-
 {available_models}
 
 You have the following tools available to you to help you respond to only the most recent user message:
-
 {tools}
 
 To decide whether to use a tool or simply respond to the user, consider your thought history:
-
 {agent_scratchpad}.
 
 Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
-
 {{
     "thought": "Write your thoughts about what you should do here. Include whether a tool has already been used.",
     "action": one of "respond, use_tool", # consider your last thought {last_thought}
@@ -79,7 +72,8 @@ Reply in the following properly formatted JSON format where all keys and values 
     "response": "string response to the user"
 }}
 
-User Input: {input}
+User Input:
+{input}
 
 Begin!
 '''
@@ -100,7 +94,7 @@ Begin!
         # Format it as 'YYYY-MM-DD HH:MM:SS'
         return current_utc_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    def get_chat_history(self, message, num_messages=100):
+    def get_chat_history(self, message, num_messages):
         '''Retrieves last n messages from channel history'''
         is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False
         guild_id = None if is_dm else message.guild.id
@@ -165,7 +159,7 @@ Begin!
 
         llm = ChatOllama(model=self.model_name)
         intermediate_steps = ['I have to think carefully how to respond to the user']
-        self.get_chat_history(message)
+        self.get_chat_history(message, self.cfg.CHAT_HISTORY_LENGTH)
 
         agent = (
             {
