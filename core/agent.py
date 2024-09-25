@@ -24,13 +24,14 @@ class FriendGPT:
         self.tool_names = ", ".join([t.name for t in self.tools])
         self.chat_history = ""
         self.set_prompt_template()
-        self.core_memory = CoreMemory(cfg.CORE_MEMORY_PATH)
+        self.core_memory = None
         self.bot = None
 
     def load_identity(self, bot):
         self.name = bot.user.name
         self.id = bot.user.id
         self.bot = bot
+        self.core_memory = CoreMemory(self.cfg.CORE_MEMORY_PATH, self.name)
         # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
         if self.cfg.USE_STARTER_PERSONALITY:
             self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=self.name)
@@ -96,9 +97,7 @@ Begin!
 
     def get_chat_history(self, message, num_messages):
         '''Retrieves last n messages from channel history'''
-        is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False
-        guild_id = None if is_dm else message.guild.id
-        self.chat_history = self.core_memory.get_formatted_chat_history(message.channel.id, guild_id, self.name, is_dm, num_messages)
+        self.chat_history = self.core_memory.get_formatted_chat_history(message.channel.id, self.name, num_messages)
 
     def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
         for t in tools:
@@ -116,6 +115,7 @@ Begin!
 
     async def bot_send_message(self, msg_txt, rec_nick, rec_name, rec_id, chan_id, is_dm, guild_id=''):
         """Send a message to a user or channel."""
+        tts = True
         await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
 
         # Define a typing speed (characters per second)
@@ -129,7 +129,7 @@ Begin!
                 dm_channel = await user.create_dm()
                 async with dm_channel.typing():  # Show typing indicator in the DM channel
                     await asyncio.sleep(typing_duration)  # Simulate typing based on message length
-                    await dm_channel.send(msg_txt)
+                    await dm_channel.send(msg_txt, tts=tts)
             else:
                 print(f"User with ID {rec_id} not found.")
                 return
@@ -140,7 +140,7 @@ Begin!
             if channel:
                 async with channel.typing():  # Show typing indicator in the guild channel
                     await asyncio.sleep(typing_duration)  # Simulate typing based on message length
-                    await channel.send(msg_txt)
+                    await channel.send(msg_txt, tts=tts)
             else:
                 print(f"Channel with ID {chan_id} not found.")
                 return
@@ -158,7 +158,7 @@ Begin!
         )
 
         llm = ChatOllama(model=self.model_name)
-        intermediate_steps = ['0. Is a tool necessary to respond to the user or not?']
+        intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
         self.get_chat_history(message, self.cfg.CHAT_HISTORY_LENGTH)
 
         agent = (
@@ -262,7 +262,7 @@ Begin!
                 f.write(f'{"-"*50} LLM call {i + 1} {"-"*50}\n\n')
                 f.write(f'*** Prompt to LLM ***\n{step[0]}\n')
                 f.write(f'*** Agent Response ***\n\n{pretty_response}\n\n')
-                f.write(f'*** Intermediate Steps ***\n\n{"\n".join(intermediate_steps})\n\n')
+                f.write(f'*** Intermediate Steps ***\n\n{"\n".join(intermediate_steps)}\n\n')
 
         # add agent response to memory
         is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False

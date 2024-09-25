@@ -4,12 +4,13 @@ import pandas as pd
 
 
 class CoreMemory:
-    def __init__(self, db_path):
+    def __init__(self, db_path, bot_name):
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
-        self.create_table()
+        self.create_tables()
 
-    def create_table(self):
+    def create_tables(self):
+        # Create the first table
         self.cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS chat_history (
@@ -27,9 +28,63 @@ class CoreMemory:
                 ingested BOOLEAN DEFAULT FALSE,
                 message TEXT
             )
-        """
+            """
         )
+        
+        # Create the second table
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contact_info (
+                user_id INTEGER PRIMARY KEY,
+                user_nick TEXT,
+                user_name TEXT,
+                channel INTEGER,
+                info TEXT
+            )
+            """
+        )
+
+        # Commit the changes to the database
         self.conn.commit()
+
+    def ingest_channel_history(self, channel_id, threshold=20):
+        """
+        Processes recent chat history for a specific channel and updates contact info based on interactions.
+        Filters chat history by un-ingested messages and processes them if they exceed the threshold.
+        """
+        # Step 1: Query un-ingested chat history for the specific channel
+        query = """
+        SELECT sender_id, sender_nick, sender_user, recipient_id, recipient_nick, recipient_user, channel, guild
+        FROM chat_history
+        WHERE ingested = FALSE AND channel = ?
+        """
+        
+        # Execute the query to get un-ingested messages for the specific channel
+        self.cursor.execute(query, (channel_id,))
+        rows = self.cursor.fetchall()
+
+        # Step 2: Check if the number of messages exceeds the threshold
+        if len(rows) >= threshold:
+            # Step 3: Ingest the history for this channel
+            print(f"Ingesting history for channel {channel_id}")
+            if rows:  # Ensure there are rows before calling the next function
+                formatted_history = self.get_formatted_chat_history(channel_id, self.bot_name, len(rows))
+                print(formatted_history)
+
+                # Step 4: Mark these messages as ingested in the database
+                update_query = """
+                UPDATE chat_history
+                SET ingested = TRUE
+                WHERE channel = ? AND ingested = FALSE
+                """
+                self.cursor.execute(update_query, (channel_id,))
+                self.conn.commit()
+            else:
+                print(f"No un-ingested messages found for channel {channel_id}")
+        else:
+            print(f"Channel {channel_id} does not have enough messages (only {len(rows)} found, threshold is {threshold}).")
+
+
 
     def add_incoming_to_memory(self, in_message, bot_name, bot_id, received_time):
         """
@@ -86,10 +141,10 @@ class CoreMemory:
         )
         self.conn.commit()
 
-    def get_formatted_chat_history(self, channel_id, guild_id, bot_name, is_dm, num_messages):
-        # SQL query to fetch the last num_messages from the chat history
+    def get_formatted_chat_history(self, channel_id, bot_name, num_messages):
+        """Retrieves LLM friendly formatted chat history for specific channel."""
         query = """
-        SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message
+        SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message, is_dm, guild
         FROM chat_history
         WHERE channel = ?
         ORDER BY timestamp DESC
@@ -117,6 +172,8 @@ class CoreMemory:
             recipient_id = row[5]
             recipient_user = row[6]
             message = row[7]
+            is_dm = row[8]
+            guild_id = row[9]
             
             # Format the sender and recipient
             sender = sender_nick if sender_nick == sender_user else f'{sender_nick} ({sender_id})'

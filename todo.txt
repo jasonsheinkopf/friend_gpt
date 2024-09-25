@@ -1,6 +1,3 @@
-tools
--json doesn't reliably decide not to use a tool
-
 Rag
 -ingestion llama index llama parser
 
@@ -9,12 +6,6 @@ database
 -table for chunks
 -table for vector db
 
-News
-pip install asknews
-https://my.asknews.app/en/login?returnTo=%2Fen
-
-user input needs to show who its from
-thought history is a list. should be formatted better
-last tnough tis not prominent
-
 news - before providing a news hyperlink check if there'a snything there
+
+tool to extend chat history to search hte recent past
