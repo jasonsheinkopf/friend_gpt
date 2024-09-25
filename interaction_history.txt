@@ -5,16 +5,16 @@
 You are an agent chatting with friend(s) on Discord with this recent chat history:
 This is the most recent Discord DM history between you and Jason Sheinkopf in Channel 1287289039245934683
 [UTC timestamp] Sender (sender_id) -> Recipient (recipient_id): message
-[2024-09-25 01:51:23] Jason Sheinkopf (360964041130115072) -> Friend GPT: no i want you to give mea link
-[2024-09-25 01:51:45] Friend GPT -> Jason Sheinkopf (360964041130115072): Here is a link to the best article in English: https://in.mashable.com/science/82748/doomsday-glaciers-collapse-is-closer-than-experts-thought-it-will-bring-global-catastrophe
-[2024-09-25 02:00:38] Jason Sheinkopf (360964041130115072) -> Friend GPT: how ar eyou
-[2024-09-25 02:00:48] Friend GPT -> Jason Sheinkopf (360964041130115072): i'm good, just chillin' and chatting away!
-[2024-09-25 02:08:56] Jason Sheinkopf (360964041130115072) -> Friend GPT: i'm moving to tokyo. any recent news there about marijuana
-[2024-09-25 02:09:41] Friend GPT -> Jason Sheinkopf (360964041130115072): Hey, congratulations on your move to Tokyo! As for recent news about marijuana there, I found some interesting articles. A world record was set in California with 7,000 cannabis joints lit simultaneously, but it's unclear if that's related to Tokyo. In Japan, there hasn't been much progress on legalizing marijuana, and the government seems unlikely to pass a second law regulating cannabis stores. However, an alternative proposal has emerged. Here's a link to one of the articles: https://www.benzinga.com/markets/cannabis/24/09/41010999/world-record-shattered-7-000-cannabis-joints-lit-at-exact-same-moment-in-california
-[2024-09-25 06:59:06] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
 [2024-09-25 07:00:09] Jason Sheinkopf (360964041130115072) -> Friend GPT: hey
 [2024-09-25 07:00:26] Friend GPT -> Jason Sheinkopf (360964041130115072): heh, hey back at ya!
 [2024-09-25 07:37:07] Jason Sheinkopf (360964041130115072) -> Friend GPT: yo
+[2024-09-25 07:37:15] Friend GPT -> Jason Sheinkopf (360964041130115072): hey back at ya!
+[2024-09-25 07:41:39] Jason Sheinkopf (360964041130115072) -> Friend GPT: wassup
+[2024-09-25 07:42:22] Jason Sheinkopf (360964041130115072) -> Friend GPT: i know right
+[2024-09-25 07:42:29] Friend GPT -> Jason Sheinkopf (360964041130115072): lol yeah
+[2024-09-25 10:03:23] Jason Sheinkopf (360964041130115072) -> Friend GPT: helo
+[2024-09-25 10:03:40] Friend GPT -> Jason Sheinkopf (360964041130115072): lol yeah, wassup? i know right
+[2024-09-25 10:47:32] Jason Sheinkopf (360964041130115072) -> Friend GPT: he
 
 
 Your personality is:
@@ -55,23 +55,21 @@ Reply in the following properly formatted JSON format where all keys and values 
 }
 
 Most Recent User Input:
-Jason Sheinkopf: yo
+Jason Sheinkopf: he
 
 Begin!
 
 *** Agent Response ***
 
 {
-    "thought": "I think Jason wants to be casual, so I'll just respond with a normal greeting.",
+    "thought": "Just a simple 'he'... nothing too crazy. I think I can handle this on my own.",
     "action": "respond",
-    "tool_name": "",
-    "tool_input": "",
-    "response": "hey back at ya!"
+    "response": "heh, yeah!"
 }
 
 *** Intermediate Steps ***
 
 0. Agent First Thought: Is a tool necessary to respond to the user or not?
-1. Agent Final Thought: I think Jason wants to be casual, so I'll just respond with a normal greeting.
-2. Agent Response: hey back at ya!
+1. Agent Final Thought: Just a simple 'he'... nothing too crazy. I think I can handle this on my own.
+2. Agent Response: heh, yeah!
 

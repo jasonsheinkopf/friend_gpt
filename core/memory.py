@@ -7,6 +7,7 @@ class CoreMemory:
     def __init__(self, db_path, bot_name):
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
+        self.bot_name = bot_name
         self.create_tables()
 
     def create_tables(self):
@@ -38,7 +39,7 @@ class CoreMemory:
                 user_id INTEGER PRIMARY KEY,
                 user_nick TEXT,
                 user_name TEXT,
-                channel INTEGER,
+                channels TEXT, -- Store comma-separated channel IDs
                 info TEXT
             )
             """
@@ -47,44 +48,60 @@ class CoreMemory:
         # Commit the changes to the database
         self.conn.commit()
 
-    def ingest_channel_history(self, channel_id, threshold=20):
+    def get_uningested_channel_history(self, channel_id, chunk_size=100):
         """
-        Processes recent chat history for a specific channel and updates contact info based on interactions.
-        Filters chat history by un-ingested messages and processes them if they exceed the threshold.
+        Count number of un-ingested messages for a specific channel and ingests them if they exceed the threshold.
+        Ingestion involves updating contact_info and adding chunk to vectorizer.
         """
-        # Step 1: Query un-ingested chat history for the specific channel
-        query = """
-        SELECT sender_id, sender_nick, sender_user, recipient_id, recipient_nick, recipient_user, channel, guild
-        FROM chat_history
-        WHERE ingested = FALSE AND channel = ?
+        # how far back to look for un-ingested messages
+        history_window = chunk_size * 2
+        # Step 1: Query the count of un-ingested messages for the specific channel within the last 'limit' rows ordered by timestamp
+        count_query = """
+        SELECT COUNT(*) FROM (
+            SELECT * FROM chat_history
+            WHERE ingested = FALSE AND channel = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        )
         """
         
-        # Execute the query to get un-ingested messages for the specific channel
-        self.cursor.execute(query, (channel_id,))
-        rows = self.cursor.fetchall()
+        self.cursor.execute(count_query, (channel_id, history_window))
+        message_count = self.cursor.fetchone()[0]
 
         # Step 2: Check if the number of messages exceeds the threshold
-        if len(rows) >= threshold:
-            # Step 3: Ingest the history for this channel
-            print(f"Ingesting history for channel {channel_id}")
+        if message_count >= chunk_size:
+            # Step 3: Query actual un-ingested messages now that we know the count, still limiting to the last 'limit' rows
+            query = """
+            SELECT sender_id, sender_nick, sender_user, recipient_id, recipient_nick, recipient_user, channel, guild
+            FROM chat_history
+            WHERE ingested = FALSE AND channel = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """
+            
+            self.cursor.execute(query, (channel_id, message_count))
+            rows = self.cursor.fetchall()
+
+            # Step 4: Ingest the history for this channel
             if rows:  # Ensure there are rows before calling the next function
                 formatted_history = self.get_formatted_chat_history(channel_id, self.bot_name, len(rows))
-                print(formatted_history)
 
-                # Step 4: Mark these messages as ingested in the database
+                # Step 5: Mark these messages as ingested in the database
                 update_query = """
                 UPDATE chat_history
                 SET ingested = TRUE
                 WHERE channel = ? AND ingested = FALSE
+                AND timestamp <= (SELECT timestamp FROM chat_history WHERE channel = ? ORDER BY timestamp DESC LIMIT 1 OFFSET ?)
                 """
-                self.cursor.execute(update_query, (channel_id,))
+                self.cursor.execute(update_query, (channel_id, channel_id, message_count))
                 self.conn.commit()
+                return formatted_history
             else:
                 print(f"No un-ingested messages found for channel {channel_id}")
+                return None
         else:
-            print(f"Channel {channel_id} does not have enough messages (only {len(rows)} found, threshold is {threshold}).")
-
-
+            print(f"Channel {channel_id} does not have enough messages (only {message_count} found).")
+            return None
 
     def add_incoming_to_memory(self, in_message, bot_name, bot_id, received_time):
         """

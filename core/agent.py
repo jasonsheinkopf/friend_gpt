@@ -132,7 +132,6 @@ Begin!
                     await dm_channel.send(msg_txt, tts=tts)
             else:
                 print(f"User with ID {rec_id} not found.")
-                return
         # If it's a guild channel send by channel id
         else:
             channel = self.bot.get_channel(chan_id)
@@ -143,12 +142,20 @@ Begin!
                     await channel.send(msg_txt, tts=tts)
             else:
                 print(f"Channel with ID {chan_id} not found.")
-                return
 
         # Add the message to the memory
         self.core_memory.add_outgoing_to_memory(msg_txt, rec_nick, rec_name, rec_id, chan_id, guild_id, self.name, 
                                                 self.id, self.get_current_utc_datetime(), is_dm
                                                 )
+        self.ingest_recent_channel_history(chan_id)
+        
+    async def ingest_recent_channel_history(self, chan_id):
+        '''Check if undigested messages exceed threshold and ingest them to long-term memory'''
+        undigested_history = self.core_memory.get_uningested_channel_history(chan_id, chunk_size=10)
+        if undigested_history:
+            print(f'Ingesting history for channel {chan_id}')
+            print(f'Now Ingesting:')
+            print(undigested_history)
 
     async def bot_receive_message(self, message: str):
         self.core_memory.add_incoming_to_memory(message, self.name, self.id, self.get_current_utc_datetime())

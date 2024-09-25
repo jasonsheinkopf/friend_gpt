@@ -9,3 +9,7 @@ database
 news - before providing a news hyperlink check if there'a snything there
 
 tool to extend chat history to search hte recent past
+
+ingestion
+-make limit=200 tied to cfgfile
+-check if ingesition works
