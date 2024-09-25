@@ -53,7 +53,7 @@ def change_model(agent, tool_input: str) -> str:
 
 @tool
 def search_news(agent, tool_input: str) -> str:
-    '''Use this tool to search for news articles on a given topic.'''
+    '''Use this tool to search for news articles on a given topic and provide a summary and hyperlink.'''
     num_articles = 3
     try:
         sdk = AskNewsSDK(
@@ -65,9 +65,9 @@ def search_news(agent, tool_input: str) -> str:
             query=tool_input,
             n_articles=num_articles,
             return_type='dicts',
-            method='nl'
+            method='nl',
         )
-        response = f'Success! The tool has successfully retreived 3 articles on "{tool_input}"\n\n'
+        response = f'''Success! The tool has successfully retreived 3 articles on "{tool_input}".'''
         for i, art_dict in enumerate(articles.as_dicts):
             title = art_dict.eng_title
             date = art_dict.pub_date
@@ -75,6 +75,7 @@ def search_news(agent, tool_input: str) -> str:
             summary = art_dict.summary
             response += f'Article {i + 1}: {title} ({date} UTC)\n{url}\n'
             response += f'Summary: {summary}\n\n'
+        response += f'\n\nNow, summarize these articles and provide a hyper link to the best one in {agent.cfg.LANGUAGE}.'
     except Exception as e:
-        response = f'There was an error with this API call: {e}'
+        response = f'There was an error with this API call: {e}. The tool did not work and I should tell the user.'
     return response

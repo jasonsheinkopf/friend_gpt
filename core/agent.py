@@ -33,7 +33,7 @@ class FriendGPT:
         self.bot = bot
         # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
         if self.cfg.USE_STARTER_PERSONALITY:
-            self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=name)
+            self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=self.name)
         else:
             # create personality text file from starter if it doesn't exist
             if not os.path.exists(self.cfg.PERSONALITY_PATH):
@@ -46,10 +46,10 @@ class FriendGPT:
 
         self.prompt_template = '''
 You are an agent chatting with friend(s) on Discord with this recent chat history:
-{chat_history}.
+{chat_history}
 
 Your personality is:
-{personality}.
+{personality}
 
 Your current LLM model is:
 {current_model}
@@ -61,18 +61,18 @@ You have the following tools available to you to help you respond to only the mo
 {tools}
 
 To decide whether to use a tool or simply respond to the user, consider your thought history:
-{agent_scratchpad}.
+{agent_scratchpad}
 
 Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
 {{
-    "thought": "Write your thoughts about what you should do here. Include whether a tool has already been used.",
-    "action": one of "respond, use_tool", # consider your last thought {last_thought}
+    "thought": "Take your time and think carefully. What are they asking for? Do I need a tool to use this? Has the tool already been used successfully?",
+    "action": one of "respond, use_tool", # consider your thought '{last_thought}' to decide which action to take
     "tool_name": one of {tool_names},
     "tool_input": "tool input argument matching the tool's docsstring requirements",
     "response": "string response to the user"
 }}
 
-User Input:
+Most Recent User Input:
 {input}
 
 Begin!
@@ -158,7 +158,7 @@ Begin!
         )
 
         llm = ChatOllama(model=self.model_name)
-        intermediate_steps = ['I have to think carefully how to respond to the user']
+        intermediate_steps = ['0. Is a tool necessary to respond to the user or not?']
         self.get_chat_history(message, self.cfg.CHAT_HISTORY_LENGTH)
 
         agent = (
@@ -176,20 +176,22 @@ Begin!
             | llm
         )
 
+        # Collect prompts and responses for debugging
+        interaction_history = []
+
         action = ""
         while action != "respond":
-            result = agent.invoke(
-                {
-                    "input": message.content,
-                    "chat_history": self.chat_history,
-                    "personality": self.personality,
-                    "agent_scratchpad": intermediate_steps,
-                    "thought": "0. I'm thinking about what to do next...",
-                    "last_thought": intermediate_steps[-1],
-                    "current_model": self.model_name,
-                    "available_models": self.available_models,
-                }
-            )
+            prompt_kwargs = {
+                'input': f'{message.author.display_name}: {message.content}',
+                'chat_history': self.chat_history,
+                'personality': self.personality,
+                'agent_scratchpad': "\n".join(intermediate_steps),
+                'thought': "0. I'm thinking about what to do next...",
+                'last_thought': intermediate_steps[-1],
+                'current_model': self.model_name,
+                'available_models': self.available_models
+            }
+            result = agent.invoke(prompt_kwargs)
 
             try:
                 # Regular expression to match the JSON part
@@ -212,8 +214,10 @@ Begin!
             print('\nModel Output:')
             print(response_dict)
 
-            action = response_dict['action']
+            # add prompt and response to interaction steps for debugging
+            interaction_history.append((prompt.format(**prompt_kwargs), response_dict))
 
+            action = response_dict['action']
             # use tool if called
             if response_dict['action'] == 'use_tool':
                 if response_dict['tool_name'] not in self.tool_names:
@@ -233,7 +237,7 @@ Begin!
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Input: {tool_input}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {observation}')
-                intermediate_steps.append(f'{len(intermediate_steps)}. Post Tool Thought: {tool_result}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Result: {tool_result}')
 
                 # print intermediate steps
                 print('\nIntermediate Steps:')
@@ -249,6 +253,16 @@ Begin!
         print(f'\n{message.author.display_name}: "{message.content}"')
         print(f'{self.name}:\n')
         print('\n'.join(intermediate_steps))
+
+        # save interactions for debugging
+        with open('interaction_history.txt', 'w') as f:
+            for i, step in enumerate(interaction_history):
+                # Pretty-print the dictionary part of the tuple
+                pretty_response = json.dumps(step[1], indent=4)
+                f.write(f'{"-"*50} LLM call {i + 1} {"-"*50}\n\n')
+                f.write(f'*** Prompt to LLM ***\n{step[0]}\n')
+                f.write(f'*** Agent Response ***\n\n{pretty_response}\n\n')
+                f.write(f'*** Intermediate Steps ***\n\n{"\n".join(intermediate_steps})\n\n')
 
         # add agent response to memory
         is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False

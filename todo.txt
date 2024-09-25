@@ -12,3 +12,9 @@ database
 News
 pip install asknews
 https://my.asknews.app/en/login?returnTo=%2Fen
+
+user input needs to show who its from
+thought history is a list. should be formatted better
+last tnough tis not prominent
+
+news - before providing a news hyperlink check if there'a snything there
