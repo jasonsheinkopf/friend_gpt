@@ -60,33 +60,42 @@ This tool allows you to search for news based on the context of the current conv
 You are unable to get new news without using this tool.
 '''
     # get recent chat history
-    chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, agent.name, num_messages=4)
+    chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, agent.name, num_messages=3)
 
     # create instance of NewsSpecialist
     specialist = NewsSpecialist(agent.cfg)
 
-    # get search term from chat history using LLM
-    search_term = specialist.get_search_term(chat_history)
-    
-    # select most relevant article using LLM
-    top_article = specialist.get_top_article(search_term, chat_history)
+    attempts = 0
 
-    # retrieve the article text
-    url, title, article_summary = specialist.retrieve_article_text(top_article)
+    while attempts < 3:
+        # get search term from chat history using LLM
+        search_term = specialist.get_search_term(chat_history)
+        
+        # select most relevant article using LLM
+        top_article = specialist.get_top_article(search_term, chat_history)
 
-    # add the article to the agent's short term memory
-    agent.short_term_memory = f"""You have read the following article:
-{title}
+        # retrieve the article text
+        url, title, article_summary = specialist.retrieve_article_text(top_article)
 
-From:
-{url}
+        if article_summary is not None:
+            # add the article to the agent's short term memory
+            agent.short_term_memory = f"""You have read the following article:
+            {title}
 
-Article Summary:
-{article_summary}
-"""
+            From:
+            {url}
 
-    response = f'''
-The tool worked! Now set "action": "respond", and share this article in you response: {top_article}
-Let the user know you have ready the article and are ready to discuss it. It is in your short term memory.
-'''
+            Article Summary:
+            {article_summary}
+            """
+
+            response = f'''The tool worked! Now set "action": "respond", and share this article in you response: {top_article}
+            Let the user know you have read the article and can to discuss it. It is in your short term memory.
+            '''
+        else:
+            response = f"No articles found on {search_term} Respond to the user to let them know. Don't try again."
+
+            print(f'No articles found on ({search_term}). Attempt {attempts + 1}')
+            attempts += 1
+
     return response

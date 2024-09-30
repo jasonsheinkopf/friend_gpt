@@ -120,7 +120,6 @@ Begin!
 
     async def bot_send_message(self, msg_txt, rec_nick, rec_name, rec_id, chan_id, is_dm, guild_id=''):
         """Send a message to a user or channel."""
-        tts = True
         await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
 
         # Define a typing speed (characters per second)
@@ -134,7 +133,7 @@ Begin!
                 dm_channel = await user.create_dm()
                 async with dm_channel.typing():  # Show typing indicator in the DM channel
                     await asyncio.sleep(typing_duration)  # Simulate typing based on message length
-                    await dm_channel.send(msg_txt, tts=tts)
+                    await dm_channel.send(msg_txt)
             else:
                 print(f"User with ID {rec_id} not found.")
         # If it's a guild channel send by channel id
@@ -144,7 +143,7 @@ Begin!
             if channel:
                 async with channel.typing():  # Show typing indicator in the guild channel
                     await asyncio.sleep(typing_duration)  # Simulate typing based on message length
-                    await channel.send(msg_txt, tts=tts)
+                    await channel.send(msg_txt)
             else:
                 print(f"Channel with ID {chan_id} not found.")
 
@@ -206,7 +205,11 @@ Begin!
                 'available_models': self.available_models,
                 'short_term_memory': self.short_term_memory,
             }
-            result = agent.invoke(prompt_kwargs)
+            # Offload the compute-intensive agent invocation to a separate thread
+            result = await asyncio.to_thread(self.invoke_agent, prompt, message)
+
+            # Process the result (this can stay in the event loop since it's likely lightweight)
+            await self.process_agent_response(result, message)
 
             try:
                 # Regular expression to match the JSON part
@@ -248,12 +251,7 @@ Begin!
                 tool_input = response_dict['tool_input']
                 # call the tool function
                 tool_return = tool_to_use.func(agent=self, tool_input=str(tool_input))
-                # if tool_return.split()[0].lower() == 'success!':
-                #     tool_result = 'The tool was successful. I should not use the tool again. I am ready to respond.'
-                # else:
-                #     tool_result = 'The tool did not work. I should respond to the user and tell them about the error.'
-                # tool_result = tool_return.split('\n')[0]
-   
+
                 # if expected response not given, reprompt LLM
                 intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {agent_thought}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}') 

@@ -10,6 +10,8 @@ import inspect
 from langchain.tools import BaseTool
 import core.toolbox as toolbox
 
+import asyncio
+
 # Load the environment variables
 load_dotenv()
 
@@ -42,27 +44,18 @@ async def on_message(message):
     # Ignore messages from the bot itself
     if message.author == bot.user:
         return
-    
-    # Send the message to FriendGPT for processing but don't send any replies
-    await friend.bot_receive_message(message)
 
-    # # Show typing indicator while generating a response
-    # async with message.channel.typing():
-    #     response = ''
-    #     # If it's a message from a server (not DM)
-    #     if message.guild:
-    #         # Generate a response from FriendGPT
-    #         while response == '':
-    #             response = friend.reply_to_message(message)
-    #         await message.channel.send(response)
-    #     # If it's a DM
-    #     else:
-    #         while response == '':
-    #             response = friend.reply_to_message(message)
-    #         await message.author.send(response)
+    # Process the message with the agent in the background
+    asyncio.create_task(friend.bot_receive_message(message))
 
-    # Ensure other commands are processed
+    # listen for commands
     await bot.process_commands(message)
+
+    # # Always process commands immediately
+    # if message.content.startswith(bot.command_prefix):
+    # else:
+    #     # For non-command messages, process in the background without awaiting
+    #     asyncio.create_task(friend.bot_receive_message(message))
 
 # Run the bot with your token
 bot.run(os.getenv("DISCORD_TOKEN"))

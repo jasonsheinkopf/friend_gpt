@@ -21,15 +21,17 @@ class NewsSpecialist:
 
     def get_search_term(self, context):
         '''Returns most likely search term based on the context'''
-        search_term_prompt_template = f'''Given the chat context below, what is the best
-Keywords or phrases to search for in the article title and body? Consider the last line the most significant.
+        search_term_prompt_template = f'''Consider the chat context below. You need to think carefully about
+        one single news topic to create a correctly-spelled and formatted search term for.
+        Focus on the last topic discussed and don't mix up multiple topics. What are the most important. Generate a
+        few keywords to use in a news API search. Consider the last line the most significant.
 
-Context:
-{context}
+        Context:
+        {context}
 
-Your one search term response should have nothing before or after it. Don't use the word 'news' in your response.
-Response:
-'''
+        Only reply with one keyord search. Nothing before or after it. Exclude the word "news"
+        Keywords:
+        '''
         prompt = PromptTemplate.from_template(search_term_prompt_template)
         llm = ChatOllama(model=self.cfg.NEWS_MODEL)
 
@@ -45,7 +47,7 @@ Response:
             'context': context,
         })
         # print(f'Response from get_search_term: {result.content}')
-        return result.content
+        return result.content.replace('news', '')
 
     def get_articles_meta(self, topic):
         '''
@@ -149,7 +151,7 @@ Don't preface your reply or include anything other than a one sentence summary o
                 'language': self.cfg.LANGUAGE,
                 'articles_meta': self.articles_meta,
             })
-            # print(f'Response from get_top_article: {result.content}')
+            print(f'Response from get_top_article: {result.content}')
             return result.content
 
         else:
@@ -167,10 +169,19 @@ Don't preface your reply or include anything other than a one sentence summary o
             title = "No title found"
 
         # Find all URLs in the text
-        url = re.findall(url_pattern, article)[0]
+        url = re.findall(url_pattern, article)
+        if len(url) == 0:
+            return None, None, None
+        else:
+            url = url[0]
+
+        # Add headers to simulate a real browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36'
+        }
 
         # use beautiful soup to extract the article content
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         
         # check if the request was successful
         if response.status_code == 200:
