@@ -25,7 +25,9 @@ class FriendGPT:
         self.chat_history = ""
         self.set_prompt_template()
         self.core_memory = None
+        self.short_term_memory = None
         self.bot = None
+        self.current_channel = None
 
     def load_identity(self, bot):
         self.name = bot.user.name
@@ -58,6 +60,9 @@ Your current LLM model is:
 The LLM models available to you are:
 {available_models}
 
+Your short-term memory is:
+{short_term_memory}
+
 You have the following tools available to you to help you respond to only the most recent user message:
 {tools}
 
@@ -66,7 +71,7 @@ To decide whether to use a tool or simply respond to the user, consider your tho
 
 Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
 {{
-    "thought": "Take your time and think carefully. What are they asking for? Do I need a tool to use this? Has the tool already been used successfully?",
+    "thought": "In this space, think carefully and write what they are asking for and whether a tool is needed or not. Has a tool already been used successfully?",
     "action": one of "respond, use_tool", # consider your thought '{last_thought}' to decide which action to take
     "tool_name": one of {tool_names},
     "tool_input": "tool input argument matching the tool's docsstring requirements",
@@ -158,6 +163,7 @@ Begin!
             print(undigested_history)
 
     async def bot_receive_message(self, message: str):
+        self.current_channel = message.channel.id
         self.core_memory.add_incoming_to_memory(message, self.name, self.id, self.get_current_utc_datetime())
         prompt = PromptTemplate.from_template(template=self.prompt_template).partial(
             tools=render_text_description(self.tools),
@@ -178,6 +184,7 @@ Begin!
                 "last_thought": lambda x: x["last_thought"],
                 "current_model": lambda x: x["current_model"],
                 "available_models": lambda x: x["available_models"],
+                "short_term_memory": lambda x: x["short_term_memory"],
             }
             | prompt
             | llm
@@ -197,6 +204,7 @@ Begin!
                 'last_thought': intermediate_steps[-1],
                 'current_model': self.model_name,
                 'available_models': self.available_models,
+                'short_term_memory': self.short_term_memory,
             }
             result = agent.invoke(prompt_kwargs)
 
@@ -239,18 +247,19 @@ Begin!
                 tool_to_use = self.find_tool_by_name(self.tools, tool_name)
                 tool_input = response_dict['tool_input']
                 # call the tool function
-                observation = tool_to_use.func(agent=self, tool_input=str(tool_input))
-                if observation.split()[0].lower() == 'success!':
-                    tool_result = 'The tool was successful. I should not use the tool again. I am ready to respond.'
-                else:
-                    tool_result = 'The tool did not work. I should respond to the user and tell them about the error.'
+                tool_return = tool_to_use.func(agent=self, tool_input=str(tool_input))
+                # if tool_return.split()[0].lower() == 'success!':
+                #     tool_result = 'The tool was successful. I should not use the tool again. I am ready to respond.'
+                # else:
+                #     tool_result = 'The tool did not work. I should respond to the user and tell them about the error.'
+                # tool_result = tool_return.split('\n')[0]
    
                 # if expected response not given, reprompt LLM
                 intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {agent_thought}')
-                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}') 
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Input: {tool_input}')
-                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {observation}')
-                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Result: {tool_result}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {tool_return}')
+                # intermediate_steps.append(f'{len(intermediate_steps)}. Tool Result: {tool_result}')
 
                 # print intermediate steps
                 print('\nIntermediate Steps:')
