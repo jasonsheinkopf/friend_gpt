@@ -6,6 +6,8 @@ _C.CORE_MEMORY_PATH = "memories/core_memory.db"
 
 _C.MODEL = "llama3.1:8b"
 
+_C.NEWS_MODEL = "llama3.1:8b"
+
 _C.AVAILABLE_MODELS = [
     'llama3.1:8b',
     'gemma2:9b',

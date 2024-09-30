@@ -147,7 +147,7 @@ Begin!
         self.core_memory.add_outgoing_to_memory(msg_txt, rec_nick, rec_name, rec_id, chan_id, guild_id, self.name, 
                                                 self.id, self.get_current_utc_datetime(), is_dm
                                                 )
-        self.ingest_recent_channel_history(chan_id)
+        # self.ingest_recent_channel_history(chan_id)
         
     async def ingest_recent_channel_history(self, chan_id):
         '''Check if undigested messages exceed threshold and ingest them to long-term memory'''
@@ -196,7 +196,7 @@ Begin!
                 'thought': "0. I'm thinking about what to do next...",
                 'last_thought': intermediate_steps[-1],
                 'current_model': self.model_name,
-                'available_models': self.available_models
+                'available_models': self.available_models,
             }
             result = agent.invoke(prompt_kwargs)
 
@@ -224,6 +224,12 @@ Begin!
             # add prompt and response to interaction steps for debugging
             interaction_history.append((prompt.format(**prompt_kwargs), response_dict))
 
+            # extract thought
+            if 'thought' in response_dict:
+                agent_thought = response_dict['thought']
+            else:
+                agent_thought = 'I am thinking about what to do next...'
+
             action = response_dict['action']
             # use tool if called
             if response_dict['action'] == 'use_tool':
@@ -239,8 +245,8 @@ Begin!
                 else:
                     tool_result = 'The tool did not work. I should respond to the user and tell them about the error.'
    
-                # add tool output to scratchpad
-                intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {response_dict["thought"]}')
+                # if expected response not given, reprompt LLM
+                intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {agent_thought}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Input: {tool_input}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {observation}')
@@ -249,10 +255,14 @@ Begin!
                 # print intermediate steps
                 print('\nIntermediate Steps:')
                 print('\n'.join(intermediate_steps))
+            # handle missing response error
+            if 'response' in response_dict:
+                response = response_dict['response']
+            else:
+                response = 'Apologies, I am not sure how to respond to that.'
+            # add agent response to scratchpad
+            final_response = response
 
-        # add agent response to scratchpad
-        agent_thought = response_dict['thought']
-        final_response = response_dict['response']
         intermediate_steps.append(f'{len(intermediate_steps)}. Agent Final Thought: {agent_thought}')
         intermediate_steps.append(f'{len(intermediate_steps)}. Agent Response: {final_response}')
 

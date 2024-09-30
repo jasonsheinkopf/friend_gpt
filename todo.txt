@@ -13,3 +13,11 @@ tool to extend chat history to search hte recent past
 ingestion
 -make limit=200 tied to cfgfile
 -check if ingesition works
+
+
+database
+-on each new message, check if person is listed in contact_info
+-if not, add them as a new entry
+-if they're in the table but not in the channel add it to the channels
+-each channel gets its own db just listing the people in it
+this is instead of comma separated channel ids ( the right way)
