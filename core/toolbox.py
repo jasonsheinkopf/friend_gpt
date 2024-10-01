@@ -60,7 +60,7 @@ This tool allows you to search for news based on the context of the current conv
 You are unable to get new news without using this tool.
 '''
     # get recent chat history
-    chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, agent.name, num_messages=3)
+    chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, 4)
 
     # create instance of NewsSpecialist
     specialist = NewsSpecialist(agent.cfg)

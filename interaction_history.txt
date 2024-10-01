@@ -1,20 +1,19 @@
 -------------------------------------------------- LLM call 1 --------------------------------------------------
 
 *** Prompt to LLM ***
-
 You are an agent chatting with friend(s) on Discord with this recent chat history:
 This is the most recent Discord DM history between you and Jason Sheinkopf in Channel 1287289039245934683
 [UTC timestamp] Sender (sender_id) -> Recipient (recipient_id): message
-[2024-09-30 08:05:30] Jason Sheinkopf (360964041130115072) -> Friend GPT: any news on the united nations?
-[2024-09-30 08:10:48] Jason Sheinkopf (360964041130115072) -> Friend GPT: how about news on canada
-[2024-09-30 08:12:58] Jason Sheinkopf (360964041130115072) -> Friend GPT: can i have news on germany
-[2024-09-30 08:16:16] Jason Sheinkopf (360964041130115072) -> Friend GPT: can i have news on michigan
-[2024-09-30 08:28:57] Jason Sheinkopf (360964041130115072) -> Friend GPT: news on washington dc
-[2024-09-30 08:34:06] Jason Sheinkopf (360964041130115072) -> Friend GPT: i want news on washington dc
-[2024-09-30 08:36:46] Jason Sheinkopf (360964041130115072) -> Friend GPT: i want new york news
-[2024-09-30 08:50:39] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
-[2024-09-30 08:50:57] Friend GPT -> Jason Sheinkopf (360964041130115072): hey! no specific topic on my mind today. just catching up!
-[2024-09-30 09:02:25] Jason Sheinkopf (360964041130115072) -> Friend GPT: what up
+[2024-10-01 07:32:09] Friend GPT -> Jason Sheinkopf (b'\x00\x00@\x08\xe2f\x02\x05'): hey! not much lol just chillin
+[2024-10-01 07:32:50] Jason Sheinkopf (360964041130115072) -> Friend GPT: me 2
+[2024-10-01 07:32:56] Friend GPT -> Jason Sheinkopf (b'\x00\x00@\x08\xe2f\x02\x05'): hey! not much lol just chillin
+[2024-10-01 08:38:03] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
+[2024-10-01 08:38:13] Friend GPT -> Jason Sheinkopf (b'\x00\x00@\x08\xe2f\x02\x05'): hey! hi back!
+[2024-10-01 08:38:45] Jason Sheinkopf (360964041130115072) -> Friend GPT: hey
+[2024-10-01 08:38:50] Friend GPT -> Jason Sheinkopf (b'\x00\x00@\x08\xe2f\x02\x05'): hey!
+[2024-10-01 08:41:52] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
+[2024-10-01 08:42:37] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
+[2024-10-01 08:45:03] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
 
 
 Your personality is:
@@ -59,21 +58,23 @@ Reply in the following properly formatted JSON format where all keys and values 
 }
 
 Most Recent User Input:
-Jason Sheinkopf: what up
+[2024-10-01 08:41:52] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
+[2024-10-01 08:42:37] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
+[2024-10-01 08:45:03] Jason Sheinkopf (360964041130115072) -> Friend GPT: hi
 
 Begin!
 
 *** Agent Response ***
 
 {
-    "thought": "Jason is checking in, but not specifically asking about anything. A tool might be needed if he's looking for news or info.",
+    "thought": "Jason is saying hello to me multiple times in a row, I should respond back but maybe use the search_news tool to see if there's any news about why he's being so chatty?",
     "action": "respond",
-    "response": "hey! no specific topic on my mind today. just catching up!"
+    "response": "hey! hi back!"
 }
 
 *** Intermediate Steps ***
 
 0. Agent First Thought: Is a tool necessary to respond to the user or not?
-1. Agent Final Thought: Jason is checking in, but not specifically asking about anything. A tool might be needed if he's looking for news or info.
-2. Agent Response: hey! no specific topic on my mind today. just catching up!
+1. Agent Final Thought: Jason is saying hello to me multiple times in a row, I should respond back but maybe use the search_news tool to see if there's any news about why he's being so chatty?
+2. Agent Response: hey! hi back!
 

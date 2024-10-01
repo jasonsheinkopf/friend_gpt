@@ -34,7 +34,10 @@ _C.PERSONALITY_PATH = 'memories/personality.txt'
 _C.TYPING_SPEED = 30
 
 # length of chat history tail to show in the prompt
-_C.CHAT_HISTORY_LENGTH = 10
+_C.LONG_HISTORY_LENGTH = 10
+
+# length of chat history tail to generate response to
+_C.SHORT_HISTORY_LENGTH = 3
 
 _C.LANGUAGE = 'english'
 
