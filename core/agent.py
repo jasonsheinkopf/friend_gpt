@@ -81,7 +81,7 @@ class FriendGPT:
 
             Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
             {{
-                "thought": "In this space, think carefully and write what they are asking for and whether a tool is needed or not. Has a tool already been used successfully?",
+                "thought": "In this space, think carefully and write what they are asking for. Don't trust your memory for current events or hyperlinks.",
                 "action": one of "respond, use_tool", # consider your thought '{last_thought}' to decide which action to take
                 "tool_name": one of {tool_names},
                 "tool_input": "tool input argument matching the tool's docsstring requirements",

@@ -7,7 +7,7 @@ from newsapi import NewsApiClient
 import requests
 import re
 from bs4 import BeautifulSoup
-# from dotenv import load_dotenv
+import textwrap
 
 
 class NewsSpecialist:
@@ -21,17 +21,18 @@ class NewsSpecialist:
 
     def get_search_term(self, context):
         '''Returns most likely search term based on the context'''
-        search_term_prompt_template = f'''Consider the chat context below. You need to think carefully about
-        one single news topic to create a correctly-spelled and formatted search term for.
-        Focus on the last topic discussed and don't mix up multiple topics. What are the most important. Generate a
-        few keywords to use in a news API search. Consider the last line the most significant.
+        search_term_prompt_template = textwrap.dedent(f'''\
+            Consider the chat context below. You need to think carefully about
+            one single news topic to create a correctly-spelled and formatted search term for.
+            Focus on the last topic discussed and don't mix up multiple topics. What are the most important. Generate a
+            few keywords to use in a news API search. Consider the last line the most significant.
 
-        Context:
-        {context}
+            Context:
+            {context}
 
-        Only reply with one keyord search. Nothing before or after it. Exclude the word "news"
-        Keywords:
-        '''
+            Only reply with one keyord search. Nothing before or after it. Exclude the word "news"
+            Keywords:
+            ''')
         prompt = PromptTemplate.from_template(search_term_prompt_template)
         llm = ChatOllama(model=self.cfg.NEWS_MODEL)
 
@@ -46,66 +47,66 @@ class NewsSpecialist:
         result = agent.invoke({
             'context': context,
         })
-        # print(f'Response from get_search_term: {result.content}')
+        print(f'Response from get_search_term: {result.content}')
         return result.content.replace('news', '')
 
     def get_articles_meta(self, topic):
         '''
         Get the metadata of the articles from news APIs
         '''
-        try:
-            sdk = AskNewsSDK(
-                client_id=os.getenv('ASKNEWS_CLIENT_ID'),
-                client_secret=os.getenv('ASKNEWS_CLIENT_SECRET'),
-                scopes=['news']
-            )
-            articles = sdk.news.search_news(
-                query=topic,
-                n_articles=self.num_articles,
-                return_type='dicts',
-                method='nl',
-            )
+        # try:
+        #     sdk = AskNewsSDK(
+        #         client_id=os.getenv('ASKNEWS_CLIENT_ID'),
+        #         client_secret=os.getenv('ASKNEWS_CLIENT_SECRET'),
+        #         scopes=['news']
+        #     )
+        #     articles = sdk.news.search_news(
+        #         query=topic,
+        #         n_articles=self.num_articles,
+        #         return_type='dicts',
+        #         method='nl',
+        #     )
 
-            for art_dict in articles.as_dicts:
+        #     for art_dict in articles.as_dicts:
+        #         self.articles_meta.append({
+        #             'title': art_dict.eng_title,
+        #             'date': art_dict.pub_date,
+        #             'url': art_dict.article_url,
+        #             'summary': art_dict.summary
+        #         })
+
+        # except Exception as e:
+        #     self.api_error += f'AskNews API error: {e}\n'
+        #     # print(f'AskNews API error: {e}')
+
+        # if not enough articles, try with newsapi
+        # if len(self.articles_meta) < self.num_articles:
+        try:
+            newsapi = NewsApiClient(api_key=os.getenv('NEWSAPI_KEY'))
+
+            articles = newsapi.get_everything(q=topic,
+                                              sources='abc-news,abc-news-au,associated-press,australian-financial-review,axios,bbc-news,bbc-sport,bloomberg,business-insider,cbc-news,cbs-news,cnn,financial-post,fortune',
+                                              from_param=self.last_month,
+                                              to=self.today,
+                                              language='en',
+                                              sort_by='relevancy',
+                                              page=1)
+
+            # don't exceed the max number of articles
+            articles_list = articles['articles'][:self.num_articles - len(self.articles_meta)]
+
+            # create dictionary of articles
+            for art_dict in articles_list:
                 self.articles_meta.append({
-                    'title': art_dict.eng_title,
-                    'date': art_dict.pub_date,
-                    'url': art_dict.article_url,
-                    'summary': art_dict.summary
+                    'title': art_dict['title'],
+                    'date': art_dict['publishedAt'],
+                    'url': art_dict['url'],
+                    'summary': art_dict['description']
                 })
 
         except Exception as e:
-            self.api_error += f'AskNews API error: {e}\n'
-            # print(f'AskNews API error: {e}')
-
-        # if not enough articles, try with newsapi
-        if len(self.articles_meta) < self.num_articles:
-            try:
-                newsapi = NewsApiClient(api_key=os.getenv('NEWSAPI_KEY'))
-
-                articles = newsapi.get_everything(q=topic,
-                                                #   sources='abc-news,abc-news-au,aftenposten,al-jazeera-english,ansa,associated-press,australian-financial-review,axios,bbc-news,bbc-sport,bloomberg,business-insider,cbc-news,cbs-news,cnn,financial-post,fortune',
-                                                  from_param=self.last_month,
-                                                  to=self.today,
-                                                  language='en',
-                                                  sort_by='relevancy',
-                                                  page=1)
-
-                # don't exceed the max number of articles
-                articles_list = articles['articles'][:self.num_articles - len(self.articles_meta)]
-
-                # create dictionary of articles
-                for art_dict in articles_list:
-                    self.articles_meta.append({
-                        'title': art_dict['title'],
-                        'date': art_dict['publishedAt'],
-                        'url': art_dict['url'],
-                        'summary': art_dict['description']
-                    })
-
-            except Exception as e:
-                self.api_error += f'NewsAPI error: {e}\n'
-                # print(f'NewsAPI error: {e}')
+            self.api_error += f'NewsAPI error: {e}\n'
+            # print(f'NewsAPI error: {e}')
 
     def get_top_article(self, topic, chat_history):
         self.get_articles_meta(topic)
@@ -120,18 +121,18 @@ class NewsSpecialist:
                 summary = art_dict['summary']
                 formatted_articles_meta += f'{title} ({date} UTC)\n{url}\n'
                 formatted_articles_meta += f'Summary: {summary}\n\n'
-            specialist_prompt_template = f'''
-You are a news specialist. You have been asked to select one article in the language {self.cfg.LANGUAGE}
-from this list that is most relevant to the context of this conversation.
+            specialist_prompt_template = textwrap.dedent(f'''\
+                You are a news specialist. You have been asked to select one article in the language {self.cfg.LANGUAGE}
+                from this list that is most relevant to the context of this conversation.
 
-Chat Context:
-{chat_history}
+                Chat Context:
+                {chat_history}
 
-Articles:
-{formatted_articles_meta}
+                Articles:
+                {formatted_articles_meta}
 
-Don't preface your reply or include anything other than a one sentence summary of the article and the url.
-'''     
+                Don't preface your reply or include anything other than a one sentence summary of the article and the url.
+                ''')
 
             prompt = PromptTemplate.from_template(specialist_prompt_template)
             llm = ChatOllama(model=self.cfg.NEWS_MODEL)
@@ -155,7 +156,7 @@ Don't preface your reply or include anything other than a one sentence summary o
             return result.content
 
         else:
-            return f'No articles were found for the topic {topic}.'
+            return None
 
     def retrieve_article_text(self, article):
         # Regex pattern for extracting URLs
@@ -190,23 +191,23 @@ Don't preface your reply or include anything other than a one sentence summary o
 
             # find the article content
             article_text = soup.get_text(strip=True)
-            article_summary = self.summarize_article(article_text)
         else:
-            article_summary = "Unable to fetch article content"
+            article_text = None
 
-        return url, title, article_summary
+        return url, title, article_text
     
     def summarize_article(self, article_text):
         ''' Summarizes the article text using LLM '''
-        article_summary_prompt_template = f'''Summarize the following article in three paragraphs.
-Make sure to note key details and the main points of the article. It's very important that you
-do not make anything up. You must only summarize the information that is in the article.
+        article_summary_prompt_template = textwrap.dedent(f'''\
+            Summarize the following article in three paragraphs.
+            Make sure to note key details and the main points of the article. It's very important that you
+            do not make anything up. You must only summarize the information that is in the article.
 
-Article Content:
-{article_text}
+            Article Content:
+            {article_text}
 
-Three Paragraph Summary:
-'''
+            Three Paragraph Summary:
+            ''')
         prompt = PromptTemplate.from_template(article_summary_prompt_template)
         llm = ChatOllama(model=self.cfg.NEWS_MODEL)
 

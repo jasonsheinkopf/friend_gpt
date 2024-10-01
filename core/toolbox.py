@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
 from core.specialists.news_specialist import NewsSpecialist
+import textwrap
+from langdetect import detect
 
 load_dotenv()
 
@@ -56,11 +58,14 @@ def change_model(agent, tool_input: str) -> str:
 @tool
 def search_news(agent, tool_input: str) -> str:
     '''
-This tool allows you to search for news based on the context of the current conversation.
-You are unable to get new news without using this tool.
-'''
+    Use this tool to search for a news article and summarize it to your short term memory.
+    Do NOT use this tool if you are asked to discuss an article you have already read.
+    tool_input: 1-2 word basic search terms for one relevant topic (excluding the word "news").
+    '''
+    search_term = tool_input
+
     # get recent chat history
-    chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, 4)
+    chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, 2)
 
     # create instance of NewsSpecialist
     specialist = NewsSpecialist(agent.cfg)
@@ -69,29 +74,40 @@ You are unable to get new news without using this tool.
 
     while attempts < 3:
         # get search term from chat history using LLM
-        search_term = specialist.get_search_term(chat_history)
+        # search_term = specialist.get_search_term(chat_history)
         
         # select most relevant article using LLM
         top_article = specialist.get_top_article(search_term, chat_history)
 
+        if top_article is None:
+            break
+
         # retrieve the article text
-        url, title, article_summary = specialist.retrieve_article_text(top_article)
+        url, title, article_text = specialist.retrieve_article_text(top_article)
+
+        # summarize the article
+        article_summary = specialist.summarize_article(article_text)
 
         if article_summary is not None:
             # add the article to the agent's short term memory
-            agent.short_term_memory = f"""You have read the following article:
-            {title}
+            agent.short_term_memory = textwrap.dedent(f"""\
+                You have read the following article:
+                {title}
 
-            From:
-            {url}
+                From:
+                {url}
 
-            Article Summary:
-            {article_summary}
-            """
+                Article Summary:
+                {article_summary}
+                """)
 
-            response = f'''The tool worked! Now set "action": "respond", and share this article in you response: {top_article}
-            Let the user know you have read the article and can to discuss it. It is in your short term memory.
-            '''
+            response = textwrap.dedent(f'''\
+                The tool worked! Now do the following:
+                    1) set "action": "respond"
+                    2) share the url in your response: {url}
+                    3) share this article summary: {article_summary}
+                ''')
+            return response
         else:
             response = f"No articles found on {search_term} Respond to the user to let them know. Don't try again."
 
