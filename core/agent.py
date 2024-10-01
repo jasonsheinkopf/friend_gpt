@@ -44,7 +44,7 @@ class FriendGPT:
         self.name = bot.user.name
         self.id = bot.user.id
         self.bot = bot
-        self.core_memory = CoreMemory(self.cfg.CORE_MEMORY_PATH, self.name, self.id)
+        self.core_memory = CoreMemory(self.cfg, self.name, self.id)
         # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
         if self.cfg.USE_STARTER_PERSONALITY:
             self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=self.name)
@@ -110,9 +110,9 @@ class FriendGPT:
         # Format it as 'YYYY-MM-DD HH:MM:SS'
         return current_utc_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    def load_recent_history(self, channel):
+    def load_recent_history(self, chan_id):
         '''Retrieves last n messages from channel history. Returns long and short history for prompt.'''
-        long_history = self.core_memory.get_formatted_chat_history(channel, self.cfg.LONG_HISTORY_LENGTH)
+        long_history = self.core_memory.get_formatted_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
         # Split the chat history into lines
         short_history = long_history.splitlines()
         # Get the last 4 lines
@@ -130,7 +130,7 @@ class FriendGPT:
     def get_token_count(self, result):
         '''Retreive token count from the result and calculate percent fill of context'''
         self.token_counts = {k: v for k, v in result.usage_metadata.items()}
-        self.token_counts['context_length'] = self.get_context_length(ollama.show(self.cfg.MODEL_NAME))
+        self.token_counts['context_length'] = self.get_context_length(ollama.show(self.cfg.MODEL))
         self.token_counts['context_fill'] = int(self.token_counts['total_tokens']) / self.token_counts['context_length']
         for k, v in self.token_counts.items():
             print(f"{k}: {v}")
@@ -150,7 +150,7 @@ class FriendGPT:
     def prepare_and_send_discord_message(self, msg_txt, chan_id):
 
         # retrieve channel metadata from the first message in the channel
-        rec_nick, rec_user, rec_id, guild, is_dm = self.get_channel_metadata(chan_id)
+        rec_nick, rec_user, rec_id, guild, is_dm = self.core_memory.get_channel_metadata(chan_id)
 
         """Prepare a message to to be send to a user or channel."""
         # await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
@@ -290,7 +290,7 @@ class FriendGPT:
                 'agent_scratchpad': "\n".join(intermediate_steps),
                 'thought': "0. I'm thinking about what to do next...",
                 'last_thought': intermediate_steps[-1],
-                'current_model': self.cfg.MODEL_NAME,
+                'current_model': self.cfg.MODEL,
                 'available_models': self.cfg.AVAILABLE_MODELS,
                 'short_term_memory': self.short_term_memory,
             }
