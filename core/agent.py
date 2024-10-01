@@ -370,7 +370,7 @@ class FriendGPT:
         if not os.path.exists('output'):
             os.makedirs('output')
         interaction_history_path = os.path.join('output', 'interaction_history.txt')
-        with open(interaction_history_path), 'w') as f:
+        with open(interaction_history_path, 'w') as f:
             for i, step in enumerate(interaction_history):
                 # Pretty-print the dictionary part of the tuple
                 pretty_response = json.dumps(step[1], indent=4)
