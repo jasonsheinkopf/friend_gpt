@@ -268,9 +268,10 @@ class CoreMemory:
         # Extract recipient details
         rec_nick = df[f'{role}_nick'].iloc[0]
         rec_user = df[f'{role}_user'].iloc[0]
-        rec_id = df[f'{role}_id'].iloc[0]
+        rec_id = int(df[f'{role}_id'].iloc[0])
         guild = df['guild'].iloc[0]
-        is_dm = df['is_dm'].iloc[0]
+        guild = '' if guild == '' else int(guild)
+        is_dm = bool(df['is_dm'].iloc[0])
 
         return rec_nick, rec_user, rec_id, guild, is_dm
 
