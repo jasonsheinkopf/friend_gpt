@@ -294,11 +294,7 @@ class FriendGPT:
                 'available_models': self.cfg.AVAILABLE_MODELS,
                 'short_term_memory': self.short_term_memory,
             }
-            # Offload the compute-intensive agent invocation to a separate thread
-            result = await asyncio.to_thread(self.invoke_agent, prompt, message)
-
-            # Process the result (this can stay in the event loop since it's likely lightweight)
-            await self.process_agent_response(result, message)
+            result = agent.invoke(prompt_kwargs)
 
             try:
                 # Regular expression to match the JSON part
