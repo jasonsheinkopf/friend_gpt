@@ -1,2 +1,6 @@
 .env
 old/
+memories/
+.venv/
+__pycache__/
+output/
