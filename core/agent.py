@@ -6,34 +6,45 @@ import ollama
 import re
 import json
 from datetime import datetime, timezone
-import discord
 from core.memory import CoreMemory
 from langchain.tools import Tool
 import os
 import asyncio
+import inspect
+from langchain.tools import BaseTool
+import core.toolbox as toolbox
+import textwrap
+import threading
+import time
+import queue
 
 # langchain.debug = True
 
 
 class FriendGPT:
-    def __init__(self, tools, cfg):
+    def __init__(self, cfg):
         self.cfg = cfg
-        self.tools = tools
-        self.model_name = self.cfg.MODEL
-        self.available_models = self.cfg.AVAILABLE_MODELS
+        self.task_queue = queue.Queue()
+        self.tools = [member for _, member in inspect.getmembers(toolbox) if isinstance(member, BaseTool)]
         self.tool_names = ", ".join([t.name for t in self.tools])
-        self.chat_history = ""
         self.set_prompt_template()
         self.core_memory = None
         self.short_term_memory = None
         self.bot = None
+        self.id = None
+        self.name = None
         self.current_channel = None
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self.run_tasks)
+        self.running = True  # flag to stop the thread
+        self.busy = False  # flag to check if the agent is busy
+        self.thread.start()
 
     def load_identity(self, bot):
         self.name = bot.user.name
         self.id = bot.user.id
         self.bot = bot
-        self.core_memory = CoreMemory(self.cfg.CORE_MEMORY_PATH, self.name)
+        self.core_memory = CoreMemory(self.cfg.CORE_MEMORY_PATH, self.name, self.id)
         # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
         if self.cfg.USE_STARTER_PERSONALITY:
             self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=self.name)
@@ -46,43 +57,42 @@ class FriendGPT:
                 self.personality = f.read()
 
     def set_prompt_template(self):
+        self.prompt_template = textwrap.dedent('''\
+            You are an agent chatting with friend(s) on Discord with this recent chat history:
+            {chat_history}
 
-        self.prompt_template = '''
-You are an agent chatting with friend(s) on Discord with this recent chat history:
-{chat_history}
+            Your personality is:
+            {personality}
 
-Your personality is:
-{personality}
+            Your current LLM model is:
+            {current_model}
 
-Your current LLM model is:
-{current_model}
+            The LLM models available to you are:
+            {available_models}
 
-The LLM models available to you are:
-{available_models}
+            Your short-term memory is:
+            {short_term_memory}
 
-Your short-term memory is:
-{short_term_memory}
+            You have the following tools available to you to help you respond to only the most recent user message:
+            {tools}
 
-You have the following tools available to you to help you respond to only the most recent user message:
-{tools}
+            To decide whether to use a tool or simply respond to the user, consider your thought history:
+            {agent_scratchpad}
 
-To decide whether to use a tool or simply respond to the user, consider your thought history:
-{agent_scratchpad}
+            Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
+            {{
+                "thought": "In this space, think carefully and write what they are asking for and whether a tool is needed or not. Has a tool already been used successfully?",
+                "action": one of "respond, use_tool", # consider your thought '{last_thought}' to decide which action to take
+                "tool_name": one of {tool_names},
+                "tool_input": "tool input argument matching the tool's docsstring requirements",
+                "response": "string response to the user"
+            }}
 
-Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
-{{
-    "thought": "In this space, think carefully and write what they are asking for and whether a tool is needed or not. Has a tool already been used successfully?",
-    "action": one of "respond, use_tool", # consider your thought '{last_thought}' to decide which action to take
-    "tool_name": one of {tool_names},
-    "tool_input": "tool input argument matching the tool's docsstring requirements",
-    "response": "string response to the user"
-}}
+            Most Recent User Input:
+            {input}
 
-Most Recent User Input:
-{input}
-
-Begin!
-'''
+            Begin!
+            ''')
 
     def get_context_length(self, d):
         if isinstance(d, dict):
@@ -100,9 +110,16 @@ Begin!
         # Format it as 'YYYY-MM-DD HH:MM:SS'
         return current_utc_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    def get_chat_history(self, message, num_messages):
-        '''Retrieves last n messages from channel history'''
-        self.chat_history = self.core_memory.get_formatted_chat_history(message.channel.id, self.name, num_messages)
+    def load_recent_history(self, channel):
+        '''Retrieves last n messages from channel history. Returns long and short history for prompt.'''
+        long_history = self.core_memory.get_formatted_chat_history(channel, self.cfg.LONG_HISTORY_LENGTH)
+        # Split the chat history into lines
+        short_history = long_history.splitlines()
+        # Get the last 4 lines
+        short_history = short_history[-self.cfg.SHORT_HISTORY_LENGTH:]
+        # Join the last 4 lines back into a string
+        short_history = "\n".join(short_history)
+        return short_history, long_history
 
     def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
         for t in tools:
@@ -113,15 +130,30 @@ Begin!
     def get_token_count(self, result):
         '''Retreive token count from the result and calculate percent fill of context'''
         self.token_counts = {k: v for k, v in result.usage_metadata.items()}
-        self.token_counts['context_length'] = self.get_context_length(ollama.show(self.model_name))
+        self.token_counts['context_length'] = self.get_context_length(ollama.show(self.cfg.MODEL_NAME))
         self.token_counts['context_fill'] = int(self.token_counts['total_tokens']) / self.token_counts['context_length']
         for k, v in self.token_counts.items():
             print(f"{k}: {v}")
 
-    async def bot_send_message(self, msg_txt, rec_nick, rec_name, rec_id, chan_id, is_dm, guild_id=''):
-        """Send a message to a user or channel."""
-        tts = True
-        await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
+    def send_discord_message(self, channel, msg_txt, typing_duration):
+        """Send a message to be sent to a Discord channel."""
+        try:
+            async def send_message_with_typing():
+                async with channel.typing():
+                    await asyncio.sleep(typing_duration)
+                    await channel.send(msg_txt)
+            # schedule coroutine in thread-safe manner
+            asyncio.run_coroutine_threadsafe(send_message_with_typing(), self.bot.loop)
+        except Exception as e:
+            print(f"Failed to send message to channel {channel}: {e}")
+
+    def prepare_and_send_discord_message(self, msg_txt, chan_id):
+
+        # retrieve channel metadata from the first message in the channel
+        rec_nick, rec_user, rec_id, guild, is_dm = self.get_channel_metadata(chan_id)
+
+        """Prepare a message to to be send to a user or channel."""
+        # await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
 
         # Define a typing speed (characters per second)
         typing_speed = self.cfg.TYPING_SPEED
@@ -129,50 +161,106 @@ Begin!
 
         # If it's a DM channel, send to the user directly
         if is_dm:
-            user = await self.bot.fetch_user(rec_id)
-            if user:
-                dm_channel = await user.create_dm()
-                async with dm_channel.typing():  # Show typing indicator in the DM channel
-                    await asyncio.sleep(typing_duration)  # Simulate typing based on message length
-                    await dm_channel.send(msg_txt, tts=tts)
-            else:
-                print(f"User with ID {rec_id} not found.")
-        # If it's a guild channel send by channel id
+            try:
+                # fetch user and prepare DM channel from received ID
+                user = asyncio.run_coroutine_threadsafe(self.bot.fetch_user(rec_id), self.bot.loop).result()
+                if user:
+                    # get DM channel or create if not available
+                    dm_chan_id = user.dm_channel or asyncio.run_coroutine_threadsafe(user.create_dm(), self.bot.loop).result()
+                    if dm_chan_id:
+                        self.send_discord_message(dm_chan_id, msg_txt, typing_duration)
+                    else:
+                        print(f"Failed to create DM channel with user {rec_nick}.")
+                else:
+                    print(f"User with ID {rec_id} not found.")
+            except Exception as e:
+                print(f"Faile to send message to user {rec_nick}: {e}")
         else:
-            channel = self.bot.get_channel(chan_id)
-            # Check if it's an actual channel
-            if channel:
-                async with channel.typing():  # Show typing indicator in the guild channel
-                    await asyncio.sleep(typing_duration)  # Simulate typing based on message length
-                    await channel.send(msg_txt, tts=tts)
-            else:
-                print(f"Channel with ID {chan_id} not found.")
+            try:
+                # get the guild channel
+                channel = self.bot.get_channel(chan_id)
+                if channel:
+                    self.send_discord_message(channel, msg_txt, typing_duration)
+                else:
+                    print(f"Channel with ID {chan_id} not found.")
+            except Exception as e:
+                print(f"Failed to send message to channel {chan_id}: {e}")
 
         # Add the message to the memory
-        self.core_memory.add_outgoing_to_memory(msg_txt, rec_nick, rec_name, rec_id, chan_id, guild_id, self.name, 
-                                                self.id, self.get_current_utc_datetime(), is_dm
-                                                )
-        # self.ingest_recent_channel_history(chan_id)
+        self.core_memory.add_outgoing_to_memory(msg_txt, rec_id, rec_nick, rec_user, is_dm, chan_id, guild, self.get_current_utc_datetime())
         
-    async def ingest_recent_channel_history(self, chan_id):
-        '''Check if undigested messages exceed threshold and ingest them to long-term memory'''
-        undigested_history = self.core_memory.get_uningested_channel_history(chan_id, chunk_size=10)
-        if undigested_history:
-            print(f'Ingesting history for channel {chan_id}')
-            print(f'Now Ingesting:')
-            print(undigested_history)
+    # async def ingest_recent_channel_history(self, chan_id):
+    #     '''Check if undigested messages exceed threshold and ingest them to long-term memory'''
+    #     undigested_history = self.core_memory.get_uningested_channel_history(chan_id, chunk_size=10)
+    #     if undigested_history:
+    #         print(f'Ingesting history for channel {chan_id}')
+    #         print(f'Now Ingesting:')
+    #         print(undigested_history)
 
-    async def bot_receive_message(self, message: str):
+    def log_received_message(self, message: str):
+        '''Log received message to core memory'''
+        self.core_memory.add_incoming_to_memory(message, self.get_current_utc_datetime())
         self.current_channel = message.channel.id
-        self.core_memory.add_incoming_to_memory(message, self.name, self.id, self.get_current_utc_datetime())
+        self.add_task(self.reply_to_short_history)
+
+    def add_task(self, task, *args):
+        '''Add a task to the task queue'''
+        if not args:
+            args = ()
+        self.task_queue.put((task, args))
+
+    def with_busy_state(func):
+        """Decorator to handle setting busy state before and after a task."""
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            print(f'Starting task: {func.__name__}')
+            print(f'args: {args}')
+            print(f'kwargs: {kwargs}')
+            # Set busy to True before starting the task
+            self.busy = True
+            try:
+                # Execute the task
+                return func(self, *args, **kwargs)
+            finally:
+                # Set busy to False after task completion
+                self.busy = False
+        return wrapper
+
+    def run_tasks(self):
+        '''Continuous loop to manage and perform the next action'''
+        while self.running:
+            # Check if the worker is busy; if so, wait briefly
+            if self.busy:
+                time.sleep(0.1)
+                continue
+
+            # If not busy, attempt to get and execute the next action
+            try:
+                with self.lock:
+                    if not self.task_queue.empty():
+                        # get next task
+                        task, args = self.task_queue.get()
+                        # Execute the task with the provided arguments
+                        task(*args)
+            except Exception as e:
+                print(f'Error while starting the next action: {e}')
+                self.busy = False
+
+            # Sleep briefly to avoid excessive looping
+            time.sleep(0.1)
+
+    def reply_to_short_history(self):
+        '''Reply to the most recent messages in the channel'''
         prompt = PromptTemplate.from_template(template=self.prompt_template).partial(
             tools=render_text_description(self.tools),
             tool_names=self.tool_names,
         )
 
-        llm = ChatOllama(model=self.model_name)
+        llm = ChatOllama(model=self.cfg.MODEL)
         intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
-        self.get_chat_history(message, self.cfg.CHAT_HISTORY_LENGTH)
+
+        # load recent chat histories
+        short_history, long_history = self.load_recent_history(self.current_channel)
 
         agent = (
             {
@@ -196,14 +284,14 @@ Begin!
         action = ""
         while action != "respond":
             prompt_kwargs = {
-                'input': f'{message.author.display_name}: {message.content}',
-                'chat_history': self.chat_history,
+                'input': short_history,
+                'chat_history': long_history,
                 'personality': self.personality,
                 'agent_scratchpad': "\n".join(intermediate_steps),
                 'thought': "0. I'm thinking about what to do next...",
                 'last_thought': intermediate_steps[-1],
-                'current_model': self.model_name,
-                'available_models': self.available_models,
+                'current_model': self.cfg.MODEL_NAME,
+                'available_models': self.cfg.AVAILABLE_MODELS,
                 'short_term_memory': self.short_term_memory,
             }
             result = agent.invoke(prompt_kwargs)
@@ -248,18 +336,12 @@ Begin!
                 tool_input = response_dict['tool_input']
                 # call the tool function
                 tool_return = tool_to_use.func(agent=self, tool_input=str(tool_input))
-                # if tool_return.split()[0].lower() == 'success!':
-                #     tool_result = 'The tool was successful. I should not use the tool again. I am ready to respond.'
-                # else:
-                #     tool_result = 'The tool did not work. I should respond to the user and tell them about the error.'
-                # tool_result = tool_return.split('\n')[0]
    
                 # if expected response not given, reprompt LLM
                 intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {agent_thought}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}') 
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Input: {tool_input}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {tool_return}')
-                # intermediate_steps.append(f'{len(intermediate_steps)}. Tool Result: {tool_result}')
 
                 # print intermediate steps
                 print('\nIntermediate Steps:')
@@ -276,7 +358,7 @@ Begin!
         intermediate_steps.append(f'{len(intermediate_steps)}. Agent Response: {final_response}')
 
         # print final response
-        print(f'\n{message.author.display_name}: "{message.content}"')
+        print(short_history)
         print(f'{self.name}:\n')
         print('\n'.join(intermediate_steps))
 
@@ -290,17 +372,33 @@ Begin!
                 f.write(f'*** Agent Response ***\n\n{pretty_response}\n\n')
                 f.write(f'*** Intermediate Steps ***\n\n{"\n".join(intermediate_steps)}\n\n')
 
-        # add agent response to memory
-        is_dm = True if isinstance(message.channel, discord.DMChannel) == 1 else False
+        self.prepare_and_send_discord_message(final_response, self.current_channel)
     
-        # send message to discord
-        await self.bot_send_message(
-            msg_txt=final_response,
-            rec_nick=message.author.display_name,
-            rec_name=message.author.name,
-            rec_id=message.author.id,
-            chan_id=message.channel.id,
-            is_dm=is_dm,
-            guild_id='' if is_dm else message.guild.id
-        )
+    def dummy_action_a(self):
+        '''Dummy action that counts to 5 and prints its name'''
+        print("Starting Dummy Action A (counting to 5 seconds)...")
+        for i in range(5):
+            if not self.running:
+                print("Stopping Dummy Action A early.")
+                return
+            print(f"Dummy Action A - Count {i + 1}")
+            time.sleep(1)
+        print("Finished Dummy Action A.")
+        self.busy = False
 
+    def dummy_action_b(self):
+        '''Dummy action that counts to 5 and prints its name'''
+        print("Starting Dummy Action B (counting to 5 seconds)...")
+        for i in range(5):
+            if not self.running:
+                print("Stopping Dummy Action B early.")
+                return
+            print(f"Dummy Action B - Count {i + 1}")
+            time.sleep(1)
+        print("Finished Dummy Action B.")
+        self.busy = False
+
+    def stop(self):
+        '''Stop the thread and join to finish any remaining tasks'''
+        self.running = False
+        self.thread.join()

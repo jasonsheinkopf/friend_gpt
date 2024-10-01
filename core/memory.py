@@ -4,11 +4,16 @@ import pandas as pd
 
 
 class CoreMemory:
-    def __init__(self, db_path, bot_name):
+    def __init__(self, db_path, bot_name, bot_id):
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self.bot_name = bot_name
+        self.bot_id = bot_id
         self.create_tables()
+
+    def create_connection(self):
+        """Creates and returns a new SQLite connection."""
+        return sqlite3.connect(self.db_path, check_same_thread=True)
 
     def create_tables(self):
         # Create the first table
@@ -103,7 +108,7 @@ class CoreMemory:
             print(f"Channel {channel_id} does not have enough messages (only {message_count} found).")
             return None
 
-    def add_incoming_to_memory(self, in_message, bot_name, bot_id, received_time):
+    def add_incoming_to_memory(self, in_message, received_time):
         """
         Add a received message to the chat history database.
         If not private, then recipient is the guild (server) ID.
@@ -119,9 +124,9 @@ class CoreMemory:
                 in_message.author.id,
                 in_message.author.display_name,
                 in_message.author.name,
-                bot_id if is_dm else in_message.channel.id,
-                bot_name if is_dm else 'Channel',
-                bot_name if is_dm else 'Channel',
+                self.bot_id if is_dm else in_message.channel.id,
+                self.bot_name if is_dm else 'Channel',
+                self.bot_name if is_dm else 'Channel',
                 received_time,
                 in_message.channel.id,
                 '' if is_dm else in_message.guild.id,
@@ -131,7 +136,7 @@ class CoreMemory:
         )
         self.conn.commit()
 
-    def add_outgoing_to_memory(self, out_message_content, recipient_display_name, recipient_name, recipient_id, channel_id, guild_id, bot_name, bot_id, sent_time, is_dm):
+    def add_outgoing_to_memory(self, msg_txt, rec_id, rec_nick, rec_user, is_dm, chan_id, guild, sent_time):
         """
         Add a received message to the chat history database.
         If not private, then recipient is the guild (server) ID.
@@ -143,22 +148,22 @@ class CoreMemory:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                bot_id,
-                bot_name,
-                bot_name,
-                recipient_id if is_dm else channel_id,
-                recipient_display_name if is_dm else 'Channel',
-                recipient_name if is_dm else 'Channel',
+                self.add_incoming_to_memorybot_id,
+                self.bot_name,
+                self.bot_name,
+                rec_id if is_dm else chan_id,
+                rec_nick if is_dm else 'Channel',
+                rec_user if is_dm else 'Channel',
                 sent_time,
-                channel_id,
-                guild_id,
+                chan_id,
+                guild,
                 is_dm,
-                out_message_content
+                msg_txt
             ),
         )
         self.conn.commit()
 
-    def get_formatted_chat_history(self, channel_id, bot_name, num_messages):
+    def get_formatted_chat_history(self, channel_id, num_messages):
         """Retrieves LLM friendly formatted chat history for specific channel."""
         query = """
         SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message, is_dm, guild
@@ -198,7 +203,7 @@ class CoreMemory:
             chat_history += f'[{timestamp}] {sender} -> {recipient}: {message}\n'
 
             # Add sender_nick to the unique names, but exclude bot_name
-            if sender_nick != bot_name and sender_nick != '':
+            if sender_nick != self.bot_name and sender_nick != '':
                 unique_names.add(sender_nick)
 
         # Convert the unique names set to a sorted list, then join them with a comma
@@ -220,7 +225,30 @@ class CoreMemory:
 
         return chat_text
     
-    import pandas as pd
+    def get_channel_metadata(self, channel_id):
+        '''Retrieve the recipient details for a specific channel.'''
+        query = "SELECT * FROM chat_history WHERE channel = ? LIMIT 1"
+        params = (channel_id,)
+        self.cursor.execute(query, params)
+        row = self.cursor.fetchone()
+
+        # create df including column names
+        df = pd.DataFrame([row], columns=[x[0] for x in self.cursor.description])
+
+        # Determine if the bot is the recipient or sender and set recipient values accordingly
+        if df['recipient_nick'].iloc[0] == self.bot_name:
+            role = 'sender'
+        else:
+            role = 'recipient'
+
+        # Extract recipient details
+        rec_nick = df[f'{role}_nick'].iloc[0]
+        rec_user = df[f'{role}_user'].iloc[0]
+        rec_id = df[f'{role}_id'].iloc[0]
+        guild = df['guild'].iloc[0]
+        is_dm = df['is_dm'].iloc[0]
+
+        return rec_nick, rec_user, rec_id, guild, is_dm
 
     def create_df(self):
         '''Create a pandas DataFrame from the chat history for use externally.'''
