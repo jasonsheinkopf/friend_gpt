@@ -318,7 +318,8 @@ class CoreMemory:
                 recipient_id = 'Agent'
             recipient = f'{recipient_nick} ({recipient_id})'
             # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
-            chat.long_history.append(f'[{timestamp}] {sender} -> {recipient}: {message}')
+            # chat.long_history.append(f'[{timestamp}] {sender} -> {recipient}: {message}')
+            chat.long_history.append(f'{sender}: {message}')
 
             # add list of unique senders
             if sender_nick != self.agent_name:
@@ -420,13 +421,13 @@ class ChatHistory:
         # if last speaker was the user, then the agent should respond
         if self.speaker_is_agent_list[-1] is False:
             agent_should_respond = True
-            print('last speaker was the user', self.chan_id)
-            print(self.formatted_long_history)
+            # print('last speaker was the user', self.chan_id)
+            # print(self.formatted_long_history)
         # if the second and third to last were the user, then the agent should respond
         elif len(self.speaker_is_agent_list) > 2 and self.speaker_is_agent_list[-2] == False and self.speaker_is_agent_list[-3] == False:
-            print('second and third to last speakers were the user')
+            # print('second and third to last speakers were the user')
             agent_should_respond = True
-            print(self.formatted_long_history)
+            # print(self.formatted_long_history)
         else:
             agent_should_respond = False
 

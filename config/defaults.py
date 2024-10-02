@@ -4,7 +4,7 @@ _C = CfgNode()
 
 _C.CORE_MEMORY_PATH = "memories/core_memory.db"
 
-_C.MODEL = "llama3.1:8b"
+_C.MODEL = "gemma2:9b"
 
 _C.NEWS_MODEL = "llama3.1:8b"
 
@@ -37,7 +37,7 @@ _C.TYPING_SPEED = 50
 _C.LONG_HISTORY_LENGTH = 20
 
 # length of chat history tail to generate response to
-_C.SHORT_HISTORY_LENGTH = 4
+_C.SHORT_HISTORY_LENGTH = 5
 
 _C.LANGUAGE = 'english'
 
