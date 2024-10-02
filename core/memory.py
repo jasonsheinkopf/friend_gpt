@@ -112,7 +112,7 @@ class CoreMemory:
 
     #         # Step 4: Ingest the history for this channel
     #         if rows:  # Ensure there are rows before calling the next function
-    #             formatted_history = self.get_formatted_chat_history(chan_id, len(rows))
+    #             long_history, short_history = self.get_formatted_chat_history(chan_id, len(rows))
 
     #             # Step 5: Mark these messages as ingested in the database
     #             update_query = """
@@ -187,7 +187,10 @@ class CoreMemory:
 
     @with_connection
     def get_formatted_chat_history(self, cursor, chan_id, num_msg):
-        """Retrieves LLM friendly formatted chat history for specific channel."""
+        """
+        Retrieves LLM friendly formatted chat history for specific channel. Long history is for
+        context, short is for starting at last agent message.
+        """
         query = """
         SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message, is_dm, guild
         FROM chat_history
@@ -206,28 +209,46 @@ class CoreMemory:
         # Initialize a set to store unique names (excluding bot_name)
         unique_names = set()
 
-        chat_history = ''
+        long_history = ''
+        last_agent_msg_idx = None
 
-        for row in rows:
+        # track the index of the last agent message
+        last_agent_msg_idx = None
+
+        for idx, row in enumerate(rows):
             timestamp = row[0]
             sender_id = row[1]
             sender_nick = row[2]
-            sender_user = row[3]
+            # sender_user = row[3]
             recipient_nick = row[4]
             recipient_id = row[5]
-            recipient_user = row[6]
+            # recipient_user = row[6]
             message = row[7]
             is_dm = row[8]
             guild_id = row[9]
             
             # Format the sender and recipient
-            sender = sender_nick if sender_nick == sender_user else f'{sender_nick} ({sender_id})'
-            recipient = recipient_nick if recipient_nick == recipient_user else f'{recipient_nick} ({recipient_id})'
-            chat_history += f'[{timestamp}] {sender} -> {recipient}: {message}\n'
+            if sender_nick == self.bot_name:
+                sender_id = 'Agent'
+            sender = f'{sender_nick} ({sender_id})'
+            if recipient_nick == self.bot_name:
+                recipient_id = 'Agent'
+            recipient = f'{recipient_nick} ({recipient_id})'
+            # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
+            long_history += f'[{timestamp}] {sender} -> {recipient}: {message}\n'
 
             # Add sender_nick to the unique names, but exclude bot_name
             if sender_nick != self.bot_name and sender_nick != '':
                 unique_names.add(sender_nick)
+
+            # record last agent message index
+            if sender_nick == self.bot_name:
+                last_agent_msg_idx = idx
+
+        # create list of lines from long history
+        long_history_list = long_history.split('\n')
+        short_history_list = long_history_list[last_agent_msg_idx:]
+        short_history = '\n'.join(short_history_list)
 
         # Convert the unique names set to a sorted list, then join them with a comma
         unique_names_list = sorted(unique_names)
@@ -238,15 +259,23 @@ class CoreMemory:
 
         # Combine the chat history and the list of people
         if is_dm:
-            chat_text = f'This is the most recent Discord DM history between you and {people_in_channel} in Channel {chan_id}\n'
+            chat_text = f'This is the most recent DM history between you (Agent) and {people_in_channel} in Channel {chan_id}\n'
         else:
-            chat_text = f'This is the most recent Discord chat history for Channel {chan_id} in Guild {guild_id}\n'
+            chat_text = f'This is the most recent chat history for Channel {chan_id} in Guild {guild_id}\n'
             chat_text += f'The people who have spoken in this channel are: {people_in_channel}\n'
         
         chat_text += '[UTC timestamp] Sender (sender_id) -> Recipient (recipient_id): message\n'
-        chat_text += chat_history
+        chat_text += long_history
 
-        return chat_text
+        return chat_text, short_history
+    
+    @with_connection
+    def get_all_chan_ids(self, cursor):
+        '''Retrieve all unique channel IDs from the chat history.'''
+        query = "SELECT DISTINCT channel FROM chat_history"
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
     
     @with_connection
     def get_channel_metadata(self, cursor, chan_id):

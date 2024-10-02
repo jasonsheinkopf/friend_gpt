@@ -17,6 +17,7 @@ import textwrap
 import threading
 import time
 import queue
+from functools import wraps
 
 # langchain.debug = True
 
@@ -36,9 +37,26 @@ class FriendGPT:
         self.current_channel = None
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self.run_tasks)
-        self.running = True  # flag to stop the thread
+        self.running = False  # flag to stop the thread
         self.busy = False  # flag to check if the agent is busy
         self.thread.start()
+
+    def with_busy_state(func):
+        """Decorator to handle setting busy state before and after a task."""
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # print(f'Starting task: {func.__name__}')
+            # print(f'args: {args}')
+            # print(f'kwargs: {kwargs}')
+            # Set busy to True before starting the task
+            self.busy = True
+            try:
+                # Execute the task
+                return func(self, *args, **kwargs)
+            finally:
+                # Set busy to False after task completion
+                self.busy = False
+        return wrapper
 
     def load_identity(self, bot):
         self.name = bot.user.name
@@ -55,6 +73,7 @@ class FriendGPT:
                     f.write(self.personality)
             with open(self.cfg.PERSONALITY_PATH, 'r') as f:
                 self.personality = f.read()
+        self.running = True
 
     def set_prompt_template(self):
         self.prompt_template = textwrap.dedent('''\
@@ -112,13 +131,11 @@ class FriendGPT:
 
     def load_recent_history(self, chan_id):
         '''Retrieves last n messages from channel history. Returns long and short history for prompt.'''
-        long_history = self.core_memory.get_formatted_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
-        # Split the chat history into lines
-        short_history = long_history.splitlines()
-        # Get the last 4 lines
-        short_history = short_history[-self.cfg.SHORT_HISTORY_LENGTH:]
-        # Join the last 4 lines back into a string
-        short_history = "\n".join(short_history)
+        long_history, short_history = self.core_memory.get_formatted_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+        # print(f'Long History:')
+        # print(long_history)
+        # print(f'Short History:')
+        # print(short_history)
         return short_history, long_history
 
     def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
@@ -188,7 +205,7 @@ class FriendGPT:
 
         # Add the message to the memory
         self.core_memory.add_outgoing_to_memory(msg_txt, rec_id, rec_nick, rec_user, is_dm, chan_id, guild, self.get_current_utc_datetime())
-        
+
     # async def ingest_recent_channel_history(self, chan_id):
     #     '''Check if undigested messages exceed threshold and ingest them to long-term memory'''
     #     undigested_history = self.core_memory.get_uningested_channel_history(chan_id, chunk_size=10)
@@ -197,34 +214,33 @@ class FriendGPT:
     #         print(f'Now Ingesting:')
     #         print(undigested_history)
 
+    @with_busy_state
     def log_received_message(self, message: str):
         '''Log received message to core memory'''
         self.core_memory.add_incoming_to_memory(message, self.get_current_utc_datetime())
         self.current_channel = message.channel.id
-        self.add_task(self.reply_to_short_history)
+
+    def get_new_msg_chans(self):
+        '''Check for new messages'''
+        new_msg_chan_ids = []
+        all_chan_ids = self.core_memory.get_all_chan_ids()
+        for chan_id in all_chan_ids:
+            # get all messages including and after last bot message
+            _, short_history = self.load_recent_history(chan_id)
+            # if empty message history, return False
+            if short_history is None:
+                continue
+            short_history_list = short_history.split('\n')
+            if len(short_history_list) > 1:
+                new_msg_chan_ids.append(chan_id)
+
+        return new_msg_chan_ids
 
     def add_task(self, task, *args):
         '''Add a task to the task queue'''
         if not args:
             args = ()
         self.task_queue.put((task, args))
-
-    def with_busy_state(func):
-        """Decorator to handle setting busy state before and after a task."""
-        @wraps(func)
-        def wrapper(self, *args, **kwargs):
-            print(f'Starting task: {func.__name__}')
-            print(f'args: {args}')
-            print(f'kwargs: {kwargs}')
-            # Set busy to True before starting the task
-            self.busy = True
-            try:
-                # Execute the task
-                return func(self, *args, **kwargs)
-            finally:
-                # Set busy to False after task completion
-                self.busy = False
-        return wrapper
 
     def run_tasks(self):
         '''Continuous loop to manage and perform the next action'''
@@ -236,6 +252,12 @@ class FriendGPT:
 
             # If not busy, attempt to get and execute the next action
             try:
+                # if get list of new channels with new messages
+                chan_ids = self.get_new_msg_chans()
+                print(f'New messages in channels: {chan_ids}')
+                for chan_id in chan_ids:
+                    # add task to reply to all new messages in all channels
+                    self.add_task(self.reply_to_short_history, chan_id)
                 with self.lock:
                     if not self.task_queue.empty():
                         # get next task
@@ -249,7 +271,7 @@ class FriendGPT:
             # Sleep briefly to avoid excessive looping
             time.sleep(0.1)
 
-    def reply_to_short_history(self):
+    def reply_to_short_history(self, chan_id):
         '''Reply to the most recent messages in the channel'''
         prompt = PromptTemplate.from_template(template=self.prompt_template).partial(
             tools=render_text_description(self.tools),
@@ -260,7 +282,7 @@ class FriendGPT:
         intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
 
         # load recent chat histories
-        short_history, long_history = self.load_recent_history(self.current_channel)
+        short_history, long_history = self.load_recent_history(chan_id)
 
         agent = (
             {
@@ -377,6 +399,7 @@ class FriendGPT:
 
         self.prepare_and_send_discord_message(final_response, self.current_channel)
     
+    @with_busy_state
     def dummy_action_a(self):
         '''Dummy action that counts to 5 and prints its name'''
         print("Starting Dummy Action A (counting to 5 seconds)...")
@@ -389,6 +412,7 @@ class FriendGPT:
         print("Finished Dummy Action A.")
         self.busy = False
 
+    @with_busy_state
     def dummy_action_b(self):
         '''Dummy action that counts to 5 and prints its name'''
         print("Starting Dummy Action B (counting to 5 seconds)...")

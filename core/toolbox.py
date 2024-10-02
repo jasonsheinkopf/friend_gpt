@@ -58,7 +58,8 @@ def change_model(agent, tool_input: str) -> str:
 @tool
 def search_news(agent, tool_input: str) -> str:
     '''
-    Use this tool to search for a news article and summarize it to your short term memory.
+    Use this tool only if the user asks specifically for news. Us it to search for a news article
+    and summarize it to your short term memory.
     Do NOT use this tool if you are asked to discuss an article you have already read.
     tool_input: 1-2 word basic search terms for one relevant topic (excluding the word "news").
     '''
