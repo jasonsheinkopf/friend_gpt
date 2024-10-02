@@ -31,15 +31,14 @@ class FriendGPT:
         self.set_prompt_template()
         self.core_memory = None
         self.short_term_memory = None
-        self.bot = None
+        self.agent = None
         self.id = None
         self.name = None
-        self.current_channel = None
+        self.chan_short_histories = {}
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self.run_tasks)
         self.running = False  # flag to stop the thread
         self.busy = False  # flag to check if the agent is busy
-        self.thread.start()
 
     def with_busy_state(func):
         """Decorator to handle setting busy state before and after a task."""
@@ -58,14 +57,14 @@ class FriendGPT:
                 self.busy = False
         return wrapper
 
-    def load_identity(self, bot):
-        self.name = bot.user.name
-        self.id = bot.user.id
-        self.bot = bot
+    def load_identity(self, agent):
+        self.name = agent.user.name
+        self.id = agent.user.id
+        self.agent = agent
         self.core_memory = CoreMemory(self.cfg, self.name, self.id)
         # to always use starter personality, set cfg.USE_STARTER_PERSONALITY = True
         if self.cfg.USE_STARTER_PERSONALITY:
-            self.personality = self.cfg.STARTER_PERSONALITY.format(discord_bot_username=self.name)
+            self.personality = self.cfg.STARTER_PERSONALITY.format(agent_username=self.name)
         else:
             # create personality text file from starter if it doesn't exist
             if not os.path.exists(self.cfg.PERSONALITY_PATH):
@@ -74,6 +73,7 @@ class FriendGPT:
             with open(self.cfg.PERSONALITY_PATH, 'r') as f:
                 self.personality = f.read()
         self.running = True
+        self.thread.start()
 
     def set_prompt_template(self):
         self.prompt_template = textwrap.dedent('''\
@@ -129,14 +129,10 @@ class FriendGPT:
         # Format it as 'YYYY-MM-DD HH:MM:SS'
         return current_utc_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    def load_recent_history(self, chan_id):
-        '''Retrieves last n messages from channel history. Returns long and short history for prompt.'''
-        long_history, short_history = self.core_memory.get_formatted_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
-        # print(f'Long History:')
-        # print(long_history)
-        # print(f'Short History:')
-        # print(short_history)
-        return short_history, long_history
+    # def load_recent_history(self, chan_id):
+    #     '''Retrieves last n messages from channel history. Returns long and short history for prompt.'''
+    #     long_history, short_history, agent_and_after = self.core_memory.get_formatted_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+    #     return short_history, long_history, agent_and_after
 
     def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
         for t in tools:
@@ -160,7 +156,7 @@ class FriendGPT:
                     await asyncio.sleep(typing_duration)
                     await channel.send(msg_txt)
             # schedule coroutine in thread-safe manner
-            asyncio.run_coroutine_threadsafe(send_message_with_typing(), self.bot.loop)
+            asyncio.run_coroutine_threadsafe(send_message_with_typing(), self.agent.loop)
         except Exception as e:
             print(f"Failed to send message to channel {channel}: {e}")
 
@@ -170,7 +166,7 @@ class FriendGPT:
         rec_nick, rec_user, rec_id, guild, is_dm = self.core_memory.get_channel_metadata(chan_id)
 
         """Prepare a message to to be send to a user or channel."""
-        # await self.bot.wait_until_ready()  # Ensure the bot is ready before sending messages
+        # await self.agent.wait_until_ready()  # Ensure the agent is ready before sending messages
 
         # Define a typing speed (characters per second)
         typing_speed = self.cfg.TYPING_SPEED
@@ -180,10 +176,10 @@ class FriendGPT:
         if is_dm:
             try:
                 # fetch user and prepare DM channel from received ID
-                user = asyncio.run_coroutine_threadsafe(self.bot.fetch_user(rec_id), self.bot.loop).result()
+                user = asyncio.run_coroutine_threadsafe(self.agent.fetch_user(rec_id), self.agent.loop).result()
                 if user:
                     # get DM channel or create if not available
-                    dm_chan_id = user.dm_channel or asyncio.run_coroutine_threadsafe(user.create_dm(), self.bot.loop).result()
+                    dm_chan_id = user.dm_channel or asyncio.run_coroutine_threadsafe(user.create_dm(), self.agent.loop).result()
                     if dm_chan_id:
                         self.send_discord_message(dm_chan_id, msg_txt, typing_duration)
                     else:
@@ -195,7 +191,7 @@ class FriendGPT:
         else:
             try:
                 # get the guild channel
-                channel = self.bot.get_channel(chan_id)
+                channel = self.agent.get_channel(chan_id)
                 if channel:
                     self.send_discord_message(channel, msg_txt, typing_duration)
                 else:
@@ -218,20 +214,16 @@ class FriendGPT:
     def log_received_message(self, message: str):
         '''Log received message to core memory'''
         self.core_memory.add_incoming_to_memory(message, self.get_current_utc_datetime())
-        self.current_channel = message.channel.id
 
     def get_new_msg_chans(self):
         '''Check for new messages'''
         new_msg_chan_ids = []
         all_chan_ids = self.core_memory.get_all_chan_ids()
+        # print(f'{all_chan_ids=}')
         for chan_id in all_chan_ids:
-            # get all messages including and after last bot message
-            _, short_history = self.load_recent_history(chan_id)
-            # if empty message history, return False
-            if short_history is None:
-                continue
-            short_history_list = short_history.split('\n')
-            if len(short_history_list) > 1:
+            # get chat history object for channel
+            channel_chat = self.core_memory.get_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+            if channel_chat.should_respond():
                 new_msg_chan_ids.append(chan_id)
 
         return new_msg_chan_ids
@@ -242,34 +234,44 @@ class FriendGPT:
             args = ()
         self.task_queue.put((task, args))
 
+    def add_new_msgs_to_queue(self):
+        '''Add any new messages from any channel to the task queue'''
+        # if get list of new channels with new messages
+        chan_ids = self.get_new_msg_chans()
+        # print(f'There are new messages in channel(s): {chan_ids}')
+        if len(chan_ids) > 0:
+            for chan_id in chan_ids:
+                # add task to reply to all new messages in all channels
+                self.add_task(self.reply_to_short_history, chan_id)
+
     def run_tasks(self):
         '''Continuous loop to manage and perform the next action'''
+        # print(f'{self.running=}')
         while self.running:
             # Check if the worker is busy; if so, wait briefly
             if self.busy:
-                time.sleep(0.1)
+                time.sleep(1)
                 continue
-
             # If not busy, attempt to get and execute the next action
             try:
-                # if get list of new channels with new messages
-                chan_ids = self.get_new_msg_chans()
-                print(f'New messages in channels: {chan_ids}')
-                for chan_id in chan_ids:
-                    # add task to reply to all new messages in all channels
-                    self.add_task(self.reply_to_short_history, chan_id)
                 with self.lock:
+                    # print('lock')
                     if not self.task_queue.empty():
                         # get next task
                         task, args = self.task_queue.get()
                         # Execute the task with the provided arguments
+                        # print(task, args)
+                        # print('performing task')
                         task(*args)
+                    else:
+                        # print('add new messages')
+                        self.add_new_msgs_to_queue()
+   
             except Exception as e:
                 print(f'Error while starting the next action: {e}')
                 self.busy = False
-
             # Sleep briefly to avoid excessive looping
-            time.sleep(0.1)
+            time.sleep(1)
 
     def reply_to_short_history(self, chan_id):
         '''Reply to the most recent messages in the channel'''
@@ -282,7 +284,9 @@ class FriendGPT:
         intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
 
         # load recent chat histories
-        short_history, long_history = self.load_recent_history(chan_id)
+        chat = self.core_memory.get_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+        short_history = chat.formatted_short_history
+        long_history = chat.formatted_long_history
 
         agent = (
             {
@@ -380,7 +384,7 @@ class FriendGPT:
         intermediate_steps.append(f'{len(intermediate_steps)}. Agent Response: {final_response}')
 
         # print final response
-        print(short_history)
+        # print(short_history)
         print(f'{self.name}:\n')
         print('\n'.join(intermediate_steps))
 
@@ -397,7 +401,7 @@ class FriendGPT:
                 f.write(f'*** Agent Response ***\n\n{pretty_response}\n\n')
                 f.write(f'*** Intermediate Steps ***\n\n{"\n".join(intermediate_steps)}\n\n')
 
-        self.prepare_and_send_discord_message(final_response, self.current_channel)
+        self.prepare_and_send_discord_message(final_response, chan_id)
     
     @with_busy_state
     def dummy_action_a(self):

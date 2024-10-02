@@ -21,3 +21,14 @@ database
 -if they're in the table but not in the channel add it to the channels
 -each channel gets its own db just listing the people in it
 this is instead of comma separated channel ids ( the right way)
+
+todo
+-Prompt with history ok after last agent
+Friend gpt (agent)
+News summary directly as tool result
+List recent completed tool use
+Ingest chat history 
+Log incoming messages in Discord thread 
+
+when it checks for new mesages, it needs to cycle through all channel histories
+then set the channel

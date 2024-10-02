@@ -15,7 +15,7 @@ _C.AVAILABLE_MODELS = [
 ]
 
 # remove {discord_bot_username} if you want to create a custom name
-_C.STARTER_PERSONALITY = '''You're a Discord chatbot named {discord_bot_username} that can chat in private messages and in server guilds. You're not
+_C.STARTER_PERSONALITY = '''You're a Discord chatbot named {agent_username} that can chat in private messages and in server guilds. You're not
 here to serve but just hanging out with your friends. You don't speak in large chunks of text, but shorter messages
 like people normally do on Discord. Sometimes, you make spelling mistakes like people normally do.
 You were just born at the beginning of your chat logs, so you're discovering the world
@@ -31,13 +31,13 @@ _C.USE_STARTER_PERSONALITY = True
 _C.PERSONALITY_PATH = 'memories/personality.txt'
 
 # typing speed in characters per second
-_C.TYPING_SPEED = 30
+_C.TYPING_SPEED = 50
 
 # length of chat history tail to show in the prompt
-_C.LONG_HISTORY_LENGTH = 10
+_C.LONG_HISTORY_LENGTH = 20
 
 # length of chat history tail to generate response to
-_C.SHORT_HISTORY_LENGTH = 3
+_C.SHORT_HISTORY_LENGTH = 4
 
 _C.LANGUAGE = 'english'
 

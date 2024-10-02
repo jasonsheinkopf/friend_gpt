@@ -13,7 +13,7 @@ def with_connection(func):
         # Get the instance of CoreMemory (`self`) from args
         self = args[0]
         # Create a new connection using `self.db_path`
-        conn = sqlite3.connect(self.db_path, check_same_thread=True)  # Safe to set to True as each call is in a single thread
+        conn = sqlite3.connect(self.cfg.CORE_MEMORY_PATH, check_same_thread=True)  # Safe to set to True as each call is in a single thread
         cursor = conn.cursor()
         try:
             # Debug print for cursor and arguments being passed to the function
@@ -32,10 +32,10 @@ def with_connection(func):
 
 
 class CoreMemory:
-    def __init__(self, cfg, bot_name, bot_id):
-        self.db_path = cfg.CORE_MEMORY_PATH
-        self.bot_name = bot_name
-        self.bot_id = bot_id
+    def __init__(self, cfg, agent_name, agent_id):
+        self.cfg = cfg
+        self.agent_name = agent_name
+        self.agent_id = agent_id
         self.create_tables()
 
     @with_connection
@@ -112,7 +112,7 @@ class CoreMemory:
 
     #         # Step 4: Ingest the history for this channel
     #         if rows:  # Ensure there are rows before calling the next function
-    #             long_history, short_history = self.get_formatted_chat_history(chan_id, len(rows))
+    #             long_history, short_history, _ = self.get_formatted_chat_history(chan_id, len(rows))
 
     #             # Step 5: Mark these messages as ingested in the database
     #             update_query = """
@@ -147,9 +147,9 @@ class CoreMemory:
                 in_message.author.id,
                 in_message.author.display_name,
                 in_message.author.name,
-                self.bot_id if is_dm else in_message.channel.id,
-                self.bot_name if is_dm else 'Channel',
-                self.bot_name if is_dm else 'Channel',
+                self.agent_id if is_dm else in_message.channel.id,
+                self.agent_name if is_dm else 'Channel',
+                self.agent_name if is_dm else 'Channel',
                 received_time,
                 in_message.channel.id,
                 '' if is_dm else in_message.guild.id,
@@ -171,9 +171,9 @@ class CoreMemory:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                self.bot_id,
-                self.bot_name,
-                self.bot_name,
+                self.agent_id,
+                self.agent_name,
+                self.agent_name,
                 rec_id if is_dm else chan_id,
                 rec_nick if is_dm else 'Channel',
                 rec_user if is_dm else 'Channel',
@@ -185,14 +185,100 @@ class CoreMemory:
             ),
         )
 
+    # @with_connection
+    # def get_formatted_chat_history(self, cursor, chan_id, num_msg):
+    #     """
+    #     Retrieves LLM friendly formatted chat history for specific channel. Long history is for
+    #     context, short is for starting at last agent message.
+    #     """
+    #     query = """
+    #     SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message, is_dm, guild
+    #     FROM chat_history
+    #     WHERE channel = ?
+    #     ORDER BY timestamp DESC
+    #     LIMIT ?
+    #     """
+    #     params = (chan_id, num_msg)
+
+    #     cursor.execute(query, params)
+    #     rows = cursor.fetchall()
+
+    #     # Reverse the order to display the oldest message first
+    #     rows.reverse()
+
+    #     # Initialize a set to store unique names (excluding agent_name)
+    #     unique_names = set()
+
+    #     long_history = ''
+    #     last_agent_msg_idx = None
+
+    #     # track the index of the last agent message
+    #     last_agent_msg_idx = None
+
+    #     for idx, row in enumerate(rows):
+    #         timestamp = row[0]
+    #         sender_id = row[1]
+    #         sender_nick = row[2]
+    #         # sender_user = row[3]
+    #         recipient_nick = row[4]
+    #         recipient_id = row[5]
+    #         # recipient_user = row[6]
+    #         message = row[7]
+    #         is_dm = row[8]
+    #         guild_id = row[9]
+            
+    #         # Format the sender and recipient
+    #         if sender_nick == self.agent_name:
+    #             sender_id = 'Agent'
+    #         sender = f'{sender_nick} ({sender_id})'
+    #         if recipient_nick == self.agent_name:
+    #             recipient_id = 'Agent'
+    #         recipient = f'{recipient_nick} ({recipient_id})'
+    #         # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
+    #         long_history += f'[{timestamp}] {sender} -> {recipient}: {message}\n'
+
+    #         # Add sender_nick to the unique names, but exclude agent_name
+    #         if sender_nick != self.agent_name and sender_nick != '':
+    #             unique_names.add(sender_nick)
+
+    #         # record last agent message index
+    #         if sender_nick == self.agent_name:
+    #             last_agent_msg_idx = idx
+
+    #     # remove the last newline character from beginning and end then split by newline
+    #     long_history_list = long_history.strip('\n').split('\n')
+    #     short_history_list = long_history_list[-5]
+    #     short_history = '\n'.join(short_history_list)
+    #     agent_and_after_list = long_history_list[last_agent_msg_idx:]
+    #     agent_and_after = '\n'.join(agent_and_after_list)
+
+    #     # Convert the unique names set to a sorted list, then join them with a comma
+    #     unique_names_list = sorted(unique_names)
+    #     unique_names_string = ', '.join(unique_names_list)
+
+    #     # Add a check to avoid showing an empty list
+    #     people_in_channel = unique_names_string
+
+    #     # Combine the chat history and the list of people
+    #     if is_dm:
+    #         chat_text = f'This is the most recent DM history between you (Agent) and {people_in_channel} in Channel {chan_id}\n'
+    #     else:
+    #         chat_text = f'This is the most recent chat history for Channel {chan_id} in Guild {guild_id}\n'
+    #         chat_text += f'The people who have spoken in this channel are: {people_in_channel}\n'
+        
+    #     chat_text += '[UTC timestamp] Sender (sender_id) -> Recipient (recipient_id): message\n'
+    #     chat_text += long_history
+
+    #     return chat_text, short_history, agent_and_after
+
     @with_connection
-    def get_formatted_chat_history(self, cursor, chan_id, num_msg):
+    def get_chat_history(self, cursor, chan_id, num_msg):
         """
         Retrieves LLM friendly formatted chat history for specific channel. Long history is for
         context, short is for starting at last agent message.
         """
         query = """
-        SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message, is_dm, guild
+        SELECT timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
         FROM chat_history
         WHERE channel = ?
         ORDER BY timestamp DESC
@@ -206,68 +292,48 @@ class CoreMemory:
         # Reverse the order to display the oldest message first
         rows.reverse()
 
-        # Initialize a set to store unique names (excluding bot_name)
-        unique_names = set()
-
-        long_history = ''
-        last_agent_msg_idx = None
+        chat = ChatHistory(chan_id, self.cfg)
 
         # track the index of the last agent message
-        last_agent_msg_idx = None
+        # last_agent_msg_idx = None
 
         for idx, row in enumerate(rows):
             timestamp = row[0]
             sender_id = row[1]
             sender_nick = row[2]
-            # sender_user = row[3]
+            recipient_id = row[3]
             recipient_nick = row[4]
-            recipient_id = row[5]
-            # recipient_user = row[6]
-            message = row[7]
-            is_dm = row[8]
-            guild_id = row[9]
+            message = row[5]
+            is_dm = row[6]
+            guild_id = row[7]
             
             # Format the sender and recipient
-            if sender_nick == self.bot_name:
+            if sender_nick == self.agent_name:
                 sender_id = 'Agent'
+                chat.speaker_is_agent_list.append(True)
+            else:
+                chat.speaker_is_agent_list.append(False)
             sender = f'{sender_nick} ({sender_id})'
-            if recipient_nick == self.bot_name:
+            if recipient_nick == self.agent_name:
                 recipient_id = 'Agent'
             recipient = f'{recipient_nick} ({recipient_id})'
             # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
-            long_history += f'[{timestamp}] {sender} -> {recipient}: {message}\n'
+            chat.long_history.append(f'[{timestamp}] {sender} -> {recipient}: {message}')
 
-            # Add sender_nick to the unique names, but exclude bot_name
-            if sender_nick != self.bot_name and sender_nick != '':
-                unique_names.add(sender_nick)
+            # add list of unique senders
+            if sender_nick != self.agent_name:
+                chat.unique_names.add(sender_nick)
 
             # record last agent message index
-            if sender_nick == self.bot_name:
-                last_agent_msg_idx = idx
+            if sender_nick == self.agent_name:
+                chat.last_agent_msg_idx = idx
 
-        # create list of lines from long history
-        long_history_list = long_history.split('\n')
-        short_history_list = long_history_list[last_agent_msg_idx:]
-        short_history = '\n'.join(short_history_list)
+            chat.is_dm = is_dm
+            chat.guild_id = guild_id
 
-        # Convert the unique names set to a sorted list, then join them with a comma
-        unique_names_list = sorted(unique_names)
-        unique_names_string = ', '.join(unique_names_list)
+        chat.process_chat_history()
 
-        # Add a check to avoid showing an empty list
-        people_in_channel = unique_names_string
-
-        # Combine the chat history and the list of people
-        if is_dm:
-            chat_text = f'This is the most recent DM history between you (Agent) and {people_in_channel} in Channel {chan_id}\n'
-        else:
-            chat_text = f'This is the most recent chat history for Channel {chan_id} in Guild {guild_id}\n'
-            chat_text += f'The people who have spoken in this channel are: {people_in_channel}\n'
-        
-        chat_text += '[UTC timestamp] Sender (sender_id) -> Recipient (recipient_id): message\n'
-        chat_text += long_history
-
-        return chat_text, short_history
+        return chat
     
     @with_connection
     def get_all_chan_ids(self, cursor):
@@ -288,8 +354,8 @@ class CoreMemory:
         # create df including column names
         df = pd.DataFrame([row], columns=[x[0] for x in cursor.description])
 
-        # Determine if the bot is the recipient or sender and set recipient values accordingly
-        if df['recipient_nick'].iloc[0] == self.bot_name:
+        # Determine if the agent is the recipient or sender and set recipient values accordingly
+        if df['recipient_nick'].iloc[0] == self.agent_name:
             role = 'sender'
         else:
             role = 'recipient'
@@ -318,3 +384,51 @@ class CoreMemory:
         df = pd.DataFrame(rows, columns=columns)
 
         return df
+
+
+class ChatHistory:
+    def __init__(self, chan_id, cfg):
+        self.chan_id = chan_id
+        self.cfg = cfg
+        self.long_history = []
+        self.formatted_long_history = ''
+        self.unique_names = set()
+        self.is_dm = None
+        self.guild_id = None
+        self.speaker_is_agent_list = []
+
+    def process_chat_history(self):
+        # Convert the unique names set to a sorted list, then join them with a comma
+        self.unique_names_list = sorted(list(self.unique_names))
+        unique_names_string = ', '.join(self.unique_names_list)
+
+        # Combine the chat history and the list of people
+        if self.is_dm:
+            chat_text = f'This is the recent DM history between you (Agent) and {unique_names_string} in Channel {self.chan_id}\n'
+        else:
+            chat_text = f'This is the most recent chat history for Channel {self.chan_id} in Guild {self.guild_id}\n'
+            chat_text += f'The people who have spoken in this channel are: {unique_names_string}\n'
+        
+        # get short history which will be used as next prompt
+        self.short_history = self.long_history[-self.cfg.SHORT_HISTORY_LENGTH:]
+
+        # format histories to be LLM friendly
+        self.formatted_long_history = '\n'.join(self.long_history) + '\n' + chat_text
+        self.formatted_short_history = '\n'.join(self.short_history)
+
+    def should_respond(self):
+        # if last speaker was the user, then the agent should respond
+        if self.speaker_is_agent_list[-1] is False:
+            agent_should_respond = True
+            print('last speaker was the user', self.chan_id)
+            print(self.formatted_long_history)
+        # if the second and third to last were the user, then the agent should respond
+        elif len(self.speaker_is_agent_list) > 2 and self.speaker_is_agent_list[-2] == False and self.speaker_is_agent_list[-3] == False:
+            print('second and third to last speakers were the user')
+            agent_should_respond = True
+            print(self.formatted_long_history)
+        else:
+            agent_should_respond = False
+
+        return agent_should_respond
+    
