@@ -34,10 +34,27 @@ _C.PERSONALITY_PATH = 'memories/personality.txt'
 _C.TYPING_SPEED = 50
 
 # length of chat history tail to show in the prompt
-_C.LONG_HISTORY_LENGTH = 20
+_C.LONG_HISTORY_LENGTH = 100
 
 # length of chat history tail to generate response to
 _C.SHORT_HISTORY_LENGTH = 5
+
+# path to save long term vector memory
+_C.CHAT_VECTOR_MEMORY_PATH = 'memories/chat_vector_memory.faiss'
+
+# chat threshold after which recent chat history should by ingested to vector memory
+_C.CHAT_VECTOR_MEMORY_THRESHOLD = 5
+
+# number of lines to store in each chunk of vector memory
+_C.CHAT_VECTOR_MEMORY_CHUNK_SIZE = 10
+
+# duration in seconds between checking for vector chat history to ingest
+_C.CHAT_VECTOR_MEMORY_INTERVAL = 60
+
+# embedding model name for SentenceTransformers
+_C.CHAT_VECTOR_EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
+
+_C.CHAT_EMBED_NEIGHBORS = 32
 
 _C.LANGUAGE = 'english'
 

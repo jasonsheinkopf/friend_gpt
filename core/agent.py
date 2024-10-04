@@ -39,6 +39,7 @@ class FriendGPT:
         self.thread = threading.Thread(target=self.run_tasks)
         self.running = False  # flag to stop the thread
         self.busy = False  # flag to check if the agent is busy
+        self.last_ingest_time = time.time()
 
     def with_busy_state(func):
         """Decorator to handle setting busy state before and after a task."""
@@ -129,11 +130,6 @@ class FriendGPT:
         # Format it as 'YYYY-MM-DD HH:MM:SS'
         return current_utc_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    # def load_recent_history(self, chan_id):
-    #     '''Retrieves last n messages from channel history. Returns long and short history for prompt.'''
-    #     long_history, short_history, agent_and_after = self.core_memory.get_formatted_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
-    #     return short_history, long_history, agent_and_after
-
     def find_tool_by_name(self, tools: List[Tool], tool_name: str) -> Tool:
         for t in tools:
             if t.name == tool_name:
@@ -161,7 +157,6 @@ class FriendGPT:
             print(f"Failed to send message to channel {channel}: {e}")
 
     def prepare_and_send_discord_message(self, msg_txt, chan_id):
-
         # retrieve channel metadata from the first message in the channel
         rec_nick, rec_user, rec_id, guild, is_dm = self.core_memory.get_channel_metadata(chan_id)
 
@@ -202,14 +197,6 @@ class FriendGPT:
         # Add the message to the memory
         self.core_memory.add_outgoing_to_memory(msg_txt, rec_id, rec_nick, rec_user, is_dm, chan_id, guild, self.get_current_utc_datetime())
 
-    # async def ingest_recent_channel_history(self, chan_id):
-    #     '''Check if undigested messages exceed threshold and ingest them to long-term memory'''
-    #     undigested_history = self.core_memory.get_uningested_channel_history(chan_id, chunk_size=10)
-    #     if undigested_history:
-    #         print(f'Ingesting history for channel {chan_id}')
-    #         print(f'Now Ingesting:')
-    #         print(undigested_history)
-
     @with_busy_state
     def log_received_message(self, message: str):
         '''Log received message to core memory'''
@@ -222,7 +209,7 @@ class FriendGPT:
         # print(f'{all_chan_ids=}')
         for chan_id in all_chan_ids:
             # get chat history object for channel
-            channel_chat = self.core_memory.get_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+            channel_chat = self.core_memory.get_recent_channel_hist(chan_id, self.cfg.LONG_HISTORY_LENGTH)
             if channel_chat.should_respond():
                 new_msg_chan_ids.append(chan_id)
 
@@ -244,6 +231,16 @@ class FriendGPT:
                 # add task to reply to all new messages in all channels
                 self.add_task(self.reply_to_short_history, chan_id)
 
+    def ingest_history_to_vector_memory(self):
+        '''Ingest recent chat history from any channel past threshold to vector memory'''
+        all_chan_ids = self.core_memory.get_all_chan_ids()
+        for chan_id in all_chan_ids:
+            # get chat history object for channel
+            channel_chat = self.core_memory.get_uningested_channel_hist(chan_id)
+            if channel_chat is not None:
+                # ingest chat history to vector memory
+                self.core_memory.ingest_chat_history_to_vector_memory(chan_id)
+
     def run_tasks(self):
         '''Continuous loop to manage and perform the next action'''
         # print(f'{self.running=}')
@@ -264,8 +261,11 @@ class FriendGPT:
                         # print('performing task')
                         task(*args)
                     else:
-                        # print('add new messages')
+                        # run checks for background tasks
                         self.add_new_msgs_to_queue()
+                        # check if chat length is past threshold to ingest
+                        if time.time() - self.last_ingest_time > self.cfg.VECTOR_MEMORY_INTERVAL:
+                            self.ingest_history_to_vector_memory()
    
             except Exception as e:
                 print(f'Error while starting the next action: {e}')
@@ -284,7 +284,7 @@ class FriendGPT:
         intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
 
         # load recent chat histories
-        chat = self.core_memory.get_chat_history(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+        chat = self.core_memory.get_recent_chan_hist(chan_id, self.cfg.LONG_HISTORY_LENGTH)
         short_history = chat.formatted_short_history
         long_history = chat.formatted_long_history
 

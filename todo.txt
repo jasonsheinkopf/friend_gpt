@@ -32,3 +32,9 @@ Log incoming messages in Discord thread
 
 when it checks for new mesages, it needs to cycle through all channel histories
 then set the channel
+
+memoryline 244
+break list of lines of chat to be ingestedinto
+chunk sizes or smaller.
+maybe overlapping
+and go from there

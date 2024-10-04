@@ -2,7 +2,10 @@ import sqlite3
 import discord
 import pandas as pd
 from functools import wraps
-
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+import os
 
 def with_connection(func):
     '''Decorator to create a new connection and cursor for each function call.'''
@@ -37,6 +40,19 @@ class CoreMemory:
         self.agent_name = agent_name
         self.agent_id = agent_id
         self.create_tables()
+        self.vector_model = SentenceTransformer(self.cfg.CHAT_VECTOR_EMBEDDING_MODEL)
+
+        # get vector model embed dim
+        # embed_dim = self.vector_model.get_sentence_embedding_dimension()
+
+        # # load or init FAISS index
+        # if os.path.exists(self.cfg.CHAT_VECTOR_MEMORY_PATH):
+        #     vector_index = faiss.read_index(self.cfg.CHAT_VECTOR_MEMORY_PATH)
+        #     print(f"Loaded FAISS index from {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
+        # else:
+        #     vector_index = faiss.IndexHNSWFlat(embed_dim, self.cfg.CHAT_EMBED_NEIGHBORS)
+        #     print(f"Initialized new FAISS index")
+        #     print(f"Created new FAISS index at {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
 
     @with_connection
     def create_tables(self, cursor):
@@ -56,7 +72,7 @@ class CoreMemory:
                 channel INTEGER,
                 guild INTEGER,
                 is_dm BOOLEAN,
-                ingested BOOLEAN DEFAULT FALSE,
+                ingested INTEGER DEFAULT -1,
                 message TEXT
             )
             """
@@ -185,97 +201,10 @@ class CoreMemory:
             ),
         )
 
-    # @with_connection
-    # def get_formatted_chat_history(self, cursor, chan_id, num_msg):
-    #     """
-    #     Retrieves LLM friendly formatted chat history for specific channel. Long history is for
-    #     context, short is for starting at last agent message.
-    #     """
-    #     query = """
-    #     SELECT timestamp, sender_id, sender_nick, sender_user, recipient_nick, recipient_id, recipient_user, message, is_dm, guild
-    #     FROM chat_history
-    #     WHERE channel = ?
-    #     ORDER BY timestamp DESC
-    #     LIMIT ?
-    #     """
-    #     params = (chan_id, num_msg)
-
-    #     cursor.execute(query, params)
-    #     rows = cursor.fetchall()
-
-    #     # Reverse the order to display the oldest message first
-    #     rows.reverse()
-
-    #     # Initialize a set to store unique names (excluding agent_name)
-    #     unique_names = set()
-
-    #     long_history = ''
-    #     last_agent_msg_idx = None
-
-    #     # track the index of the last agent message
-    #     last_agent_msg_idx = None
-
-    #     for idx, row in enumerate(rows):
-    #         timestamp = row[0]
-    #         sender_id = row[1]
-    #         sender_nick = row[2]
-    #         # sender_user = row[3]
-    #         recipient_nick = row[4]
-    #         recipient_id = row[5]
-    #         # recipient_user = row[6]
-    #         message = row[7]
-    #         is_dm = row[8]
-    #         guild_id = row[9]
-            
-    #         # Format the sender and recipient
-    #         if sender_nick == self.agent_name:
-    #             sender_id = 'Agent'
-    #         sender = f'{sender_nick} ({sender_id})'
-    #         if recipient_nick == self.agent_name:
-    #             recipient_id = 'Agent'
-    #         recipient = f'{recipient_nick} ({recipient_id})'
-    #         # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
-    #         long_history += f'[{timestamp}] {sender} -> {recipient}: {message}\n'
-
-    #         # Add sender_nick to the unique names, but exclude agent_name
-    #         if sender_nick != self.agent_name and sender_nick != '':
-    #             unique_names.add(sender_nick)
-
-    #         # record last agent message index
-    #         if sender_nick == self.agent_name:
-    #             last_agent_msg_idx = idx
-
-    #     # remove the last newline character from beginning and end then split by newline
-    #     long_history_list = long_history.strip('\n').split('\n')
-    #     short_history_list = long_history_list[-5]
-    #     short_history = '\n'.join(short_history_list)
-    #     agent_and_after_list = long_history_list[last_agent_msg_idx:]
-    #     agent_and_after = '\n'.join(agent_and_after_list)
-
-    #     # Convert the unique names set to a sorted list, then join them with a comma
-    #     unique_names_list = sorted(unique_names)
-    #     unique_names_string = ', '.join(unique_names_list)
-
-    #     # Add a check to avoid showing an empty list
-    #     people_in_channel = unique_names_string
-
-    #     # Combine the chat history and the list of people
-    #     if is_dm:
-    #         chat_text = f'This is the most recent DM history between you (Agent) and {people_in_channel} in Channel {chan_id}\n'
-    #     else:
-    #         chat_text = f'This is the most recent chat history for Channel {chan_id} in Guild {guild_id}\n'
-    #         chat_text += f'The people who have spoken in this channel are: {people_in_channel}\n'
-        
-    #     chat_text += '[UTC timestamp] Sender (sender_id) -> Recipient (recipient_id): message\n'
-    #     chat_text += long_history
-
-    #     return chat_text, short_history, agent_and_after
-
     @with_connection
-    def get_chat_history(self, cursor, chan_id, num_msg):
+    def get_recent_chan_hist(self, cursor, chan_id, num_msg):
         """
-        Retrieves LLM friendly formatted chat history for specific channel. Long history is for
-        context, short is for starting at last agent message.
+        Retrieves chat object for specific channel with recent messages.
         """
         query = """
         SELECT timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
@@ -285,17 +214,109 @@ class CoreMemory:
         LIMIT ?
         """
         params = (chan_id, num_msg)
-
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
         # Reverse the order to display the oldest message first
         rows.reverse()
 
-        chat = ChatHistory(chan_id, self.cfg)
+        return self.format_chat_history(rows, chan_id)
+    
+    @with_connection
+    def ingest_channel_hist_to_vector(self, cursor, chan_id):
+        """
+        Retrieves uningested chat history as list of sequential string chunks and stores to vector memory.
+        """
+        # Step 1: Check the count of un-ingested messages
+        count_query = """
+        SELECT COUNT(*)
+        FROM chat_history
+        WHERE channel = ? AND ingested = FALSE
+        """
+        cursor.execute(count_query, (chan_id,))
+        count = cursor.fetchone()[0]
 
-        # track the index of the last agent message
-        # last_agent_msg_idx = None
+        # check if below threshold
+        if count < self.cfg.CHAT_VECTOR_MEMORY_THRESHOLD:
+            return None
+
+        # Retrieve all un-ingested messages
+        query = """
+        SELECT timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
+        FROM chat_history
+        WHERE channel = ? AND ingested = FALSE
+        ORDER BY timestamp DESC
+        """
+        cursor.execute(query, (chan_id,))
+        rows = cursor.fetchall()
+
+        # Reverse the order to display the oldest message first
+        rows.reverse()
+
+        # break list into chunks of size VECTOR_MEMORY_CHUNK_SIZE
+        uningested_chunks_list = [rows[i:i + self.cfg.CHAT_VECTOR_MEMORY_CHUNK_SIZE] for i in range(0, len(rows), self.cfg.CHAT_VECTOR_MEMORY_CHUNK_SIZE)]
+        print(uningested_chunks_list)
+        # unroll chunk lists into formatted strings
+        uningested_history = []
+        for chunk in uningested_chunks_list:
+            chat = self.format_chat_history(chunk, chan_id)
+            uningested_history.append(chat.formatted_long_history)
+
+        # return uningested_history
+        # print(uningested_history)
+
+        # generate chunk embeddings
+        embeddings = self.vector_model.encode(uningested_history)
+        embeddings = np.array(embeddings, dtype=np.float32)
+        
+        vector_index = self.load_chat_vector_index()
+        # vector_index = faiss.IndexFlatL2(self.vector_model.get_sentence_embedding_dimension())
+
+        # add embeddings to vector index
+        vector_index.add(embeddings)
+
+        # save index
+        faiss.write_index(vector_index, self.cfg.CHAT_VECTOR_MEMORY_PATH)
+        print(f"Saved FAISS index to {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
+        # min length of string from uningesed history
+        min_size = min([len(x) for x in uningested_history])
+        max_size = max([len(x) for x in uningested_history])
+        print(f'Added {len(uningested_history)} chunks of size range {min_size} to {max_size} to vector memory.')
+
+    def load_chat_vector_index(self):
+        if os.path.exists(self.cfg.CHAT_VECTOR_MEMORY_PATH):
+            vector_index = faiss.read_index(self.cfg.CHAT_VECTOR_MEMORY_PATH)
+            print(f"Loaded FAISS index from {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
+        else:
+            vector_index = faiss.IndexHNSWFlat(self.vector_model.get_sentence_embedding_dimension(), self.cfg.CHAT_EMBED_NEIGHBORS)
+            print(f"Initialized new FAISS index")
+            print(f"Created new FAISS index at {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
+        return vector_index
+
+    def chat_vector_search(self, query_text, k=1):
+        """
+        Search the chat vector memory for the closest k vectors to the query text.
+        """
+        vector_index = self.load_chat_vector_index()
+        # Ensure the query is in list format and output is in float32 format for FAISS compatibility
+        query_embedding = self.vector_model.encode([query_text])  # Keep as list to match model input requirements
+        print(query_embedding)
+        query_embedding = np.array(query_embedding, dtype='float32')  # Convert to float32 for FAISS
+        print(query_embedding)
+
+        # Perform the search on the FAISS index
+        D, I = vector_index.search(query_embedding, k)
+
+        # Return the distances and indices
+        return D, I
+    
+    @with_connection
+    def ingest_chat_history_to_vector_memory(self, cursor, chan_id):
+        """Ingest un-ingested chat history to vector memory."""
+        print(f"Ingesting chat history for channel {chan_id} to vector memory.")
+
+    def format_chat_history(self, rows, chan_id):
+        chat = ChatHistory(chan_id, self.cfg)
 
         for idx, row in enumerate(rows):
             timestamp = row[0]
@@ -405,10 +426,9 @@ class ChatHistory:
 
         # Combine the chat history and the list of people
         if self.is_dm:
-            chat_text = f'This is the recent DM history between you (Agent) and {unique_names_string} in Channel {self.chan_id}\n'
+            chat_text = f'Private chat with {unique_names_string} in Channel {self.chan_id}\n'
         else:
-            chat_text = f'This is the most recent chat history for Channel {self.chan_id} in Guild {self.guild_id}\n'
-            chat_text += f'The people who have spoken in this channel are: {unique_names_string}\n'
+            chat_text = f'Group chat with {unique_names_string} in Channel {self.chan_id}, Guild {self.guild_id}\n'
         
         # get short history which will be used as next prompt
         self.short_history = self.long_history[-self.cfg.SHORT_HISTORY_LENGTH:]
