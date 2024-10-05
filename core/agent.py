@@ -235,11 +235,12 @@ class FriendGPT:
         '''Ingest recent chat history from any channel past threshold to vector memory'''
         all_chan_ids = self.core_memory.get_all_chan_ids()
         for chan_id in all_chan_ids:
-            # get chat history object for channel
-            channel_chat = self.core_memory.get_uningested_channel_hist(chan_id)
-            if channel_chat is not None:
-                # ingest chat history to vector memory
-                self.core_memory.ingest_chat_history_to_vector_memory(chan_id)
+            self.core_memory.ingest_channel_hist_to_vector(chan_id)
+            # # get chat history object for channel
+            # channel_chat = self.core_memory.get_uningested_channel_hist(chan_id)
+            # if channel_chat is not None:
+            #     # ingest chat history to vector memory
+            #     self.core_memory.ingest_chat_history_to_vector_memory(chan_id)
 
     def run_tasks(self):
         '''Continuous loop to manage and perform the next action'''
@@ -265,7 +266,9 @@ class FriendGPT:
                         self.add_new_msgs_to_queue()
                         # check if chat length is past threshold to ingest
                         if time.time() - self.last_ingest_time > self.cfg.CHAT_VECTOR_MEMORY_INTERVAL:
-                            # self.ingest_history_to_vector_memory()
+                            print('Checking if history needs to be ingested to vector memory...')
+                            self.ingest_history_to_vector_memory()
+                            self.last_ingest_time = time.time()
                             pass
    
             except Exception as e:

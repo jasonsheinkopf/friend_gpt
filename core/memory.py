@@ -25,7 +25,12 @@ def with_connection(func):
             # Pass the cursor as an additional positional argument
             result = func(self, cursor, *args[1:], **kwargs)
             conn.commit()
+            # print(f"Debug: Commit successful for {func.__name__}")
             return result
+        except Exception as e:
+                # Print the exception if one occurs to help in debugging
+                print(f"Error occurred in {func.__name__}: {e}")
+                raise  # Re-raise the exception after logging
         finally:
             # Always close the connection to avoid resource leaks
             conn.close()
@@ -46,7 +51,7 @@ class CoreMemory:
     @with_connection
     def create_tables(self, cursor):
         '''Create the tables if they do not exist.'''
-        # Create the first table
+        # Create full memory table
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS chat_history (
@@ -61,25 +66,35 @@ class CoreMemory:
                 channel INTEGER,
                 guild INTEGER,
                 is_dm BOOLEAN,
-                ingested INTEGER DEFAULT -1,
+                chunk_idx INTEGER DEFAULT -1,
                 summarized BOOLEAN DEFAULT FALSE,
                 message TEXT
             )
             """
         )
 
-        # Create the second table
+        # create chunked memory table
         cursor.execute(
             """
-            CREATE TABLE IF NOT EXISTS contact_info (
-                user_id INTEGER PRIMARY KEY,
-                user_nick TEXT,
-                user_name TEXT,
-                channels TEXT, -- Store comma-separated channel IDs
-                info TEXT
+            CREATE TABLE IF NOT EXISTS chat_vector_memory (
+                chunk_idx INTEGER PRIMARY KEY,
+                chunk_text TEXT
             )
             """
         )
+
+        # # Create the second table
+        # cursor.execute(
+        #     """
+        #     CREATE TABLE IF NOT EXISTS contact_info (
+        #         user_id INTEGER PRIMARY KEY,
+        #         user_nick TEXT,
+        #         user_name TEXT,
+        #         channels TEXT, -- Store comma-separated channel IDs
+        #         info TEXT
+        #     )
+        #     """
+        # )
 
     # @with_connection
     # def get_uningested_channel_history(self, cursor, chan_id, chunk_size=100):
@@ -197,7 +212,7 @@ class CoreMemory:
         Retrieves chat object for specific channel with recent messages.
         """
         query = """
-        SELECT timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
+        SELECT id, timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
         FROM chat_history
         WHERE channel = ?
         ORDER BY timestamp DESC
@@ -221,14 +236,17 @@ class CoreMemory:
         count_query = """
         SELECT COUNT(*)
         FROM chat_history
-        WHERE channel = ? AND ingested = -1
+        WHERE channel = ? AND chunk_idx = -1
         """
         cursor.execute(count_query, (chan_id,))
         count = cursor.fetchone()[0]
 
         # check if below threshold
         if count < self.cfg.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE:
+            print(f'Channel has {count} uningested messages, which is below the threshold of {self.cfg.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE}.')
             return None
+        
+        print(f'Ingesting {count} messages from channel {chan_id} to vector memory.')
         
         # chunk size should like be less than max chunk size
         max_chunk_size = self.cfg.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE * 2
@@ -249,7 +267,7 @@ class CoreMemory:
         query = """
         SELECT id, timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
         FROM chat_history
-        WHERE channel = ? AND ingested = -1
+        WHERE channel = ? AND chunk_idx = -1
         ORDER BY timestamp DESC
         """
         cursor.execute(query, (chan_id,))
@@ -281,20 +299,27 @@ class CoreMemory:
             embeddings = self.vector_model.encode(formatted_chunk_string)
             embeddings = np.array(embeddings, dtype=np.float32).reshape(1, -1)
 
-            # add embeddings to vector index
-            self.chat_vector_index.add(embeddings)
-
             # check current index size to use as chunk locator
             index_locator = self.chat_vector_index.ntotal
+
+            # add embeddings to vector index
+            self.chat_vector_index.add(embeddings)
 
             # update vector store index locator in database
             for row in chunk:
                 update_query = """
                 UPDATE chat_history
-                SET ingested = ?
+                SET chunk_idx = ?
                 WHERE channel = ? AND id = ?
                 """
                 cursor.execute(update_query, (index_locator, chan_id, row[0]))
+
+            # add chunk to vector memory
+            insert_query = """
+            INSERT INTO chat_vector_memory (chunk_idx, chunk_text)
+            VALUES (?, ?)
+            """
+            cursor.execute(insert_query, (index_locator, formatted_chunk_string))
 
         # write index attribute to file
         faiss.write_index(self.chat_vector_index, self.cfg.CHAT_VECTOR_MEMORY_PATH)
@@ -313,27 +338,40 @@ class CoreMemory:
             self.chat_vector_index = faiss.IndexFlatL2(self.vector_model.get_sentence_embedding_dimension())
             print(f"Created new FAISS index")
 
-    def chat_vector_search(self, query_text, k=1):
+    @with_connection
+    def chat_vector_search(self, cursor, query_text, k=2):
         """
         Search the chat vector memory for the closest k vectors to the query text.
         """
         # Ensure the query is in list format and output is in float32 format for FAISS compatibility
         query_embedding = self.vector_model.encode([query_text])  # Keep as list to match model input requirements
-        print(query_embedding)
         query_embedding = np.array(query_embedding, dtype='float32')  # Convert to float32 for FAISS
-        print(query_embedding)
 
         # Perform the search on the FAISS index
-        D, I = self.chat_vector_index.search(query_embedding, k)
+        _, indices = self.chat_vector_index.search(query_embedding, k)
 
+        # iterate over the indices to retrieve the corresponding chat history
+        retrievals = []
+        for idx in indices[0]:
+            idx = idx.item()
+            update_query = """
+            SELECT chunk_text
+            FROM chat_vector_memory
+            WHERE chunk_idx = ?
+            """
+            cursor.execute(update_query, (idx,))
+            chunk_text = cursor.fetchone()[0]
+            if chunk_text:
+                retrievals.append(chunk_text)
+        print(type(retrievals))
         # Return the distances and indices
-        return D, I
+        return retrievals
 
     def format_chat_history(self, rows, chan_id):
         chat = ChatHistory(chan_id, self.cfg)
 
         for idx, row in enumerate(rows):
-            idx = row[0]
+            # id = row[0]
             # timestamp = row[1]
             sender_id = row[2]
             sender_nick = row[3]
@@ -350,8 +388,8 @@ class CoreMemory:
             else:
                 chat.speaker_is_agent_list.append(False)
             sender = f'{sender_nick} ({sender_id})'
-            if recipient_nick == self.agent_name:
-                recipient_id = 'Agent'
+            # if recipient_nick == self.agent_name:
+            #     recipient_id = 'Agent'
             # recipient = f'{recipient_nick} ({recipient_id})'
             # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
             # chat.long_history.append(f'[{timestamp}] {sender} -> {recipient}: {message}')
@@ -408,10 +446,10 @@ class CoreMemory:
         return rec_nick, rec_user, rec_id, guild, is_dm
 
     @with_connection
-    def create_df(self, cursor):
+    def create_df(self, cursor, table_name):
         '''Create a pandas DataFrame from the chat history for use externally.'''
         # Execute the query to fetch all rows from the 'chat_history' table
-        cursor.execute("SELECT * FROM chat_history")
+        cursor.execute(f"SELECT * FROM {table_name}")
         rows = cursor.fetchall()
 
         # Get the column names from the cursor

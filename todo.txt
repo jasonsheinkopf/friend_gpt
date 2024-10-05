@@ -36,5 +36,14 @@ then set the channel
 memoryline 244
 break list of lines of chat to be ingestedinto
 chunk sizes or smaller.
-maybe overlapping
-and go from there
+
+vector
+i changed db type for ingested to int with default -1
+when you ingest, you have to count the number of items in faiss and use that
+as the index number to retrieve it by. gotta store that in sql column
+
+i added bool for summarized to track if it has been yet
+when sleeping, can generate summary of chunks in separate relation
+
+after you prepare chunks put them in another table already formatted
+for quickler retreival

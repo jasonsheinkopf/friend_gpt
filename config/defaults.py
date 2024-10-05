@@ -46,7 +46,7 @@ _C.CHAT_VECTOR_MEMORY_PATH = 'memories/chat_vector_memory.faiss'
 _C.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE = 4
 
 # duration in seconds between checking for vector chat history to ingest
-_C.CHAT_VECTOR_MEMORY_INTERVAL = 60
+_C.CHAT_VECTOR_MEMORY_INTERVAL = 10
 
 # embedding model name for SentenceTransformers
 _C.CHAT_VECTOR_EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
