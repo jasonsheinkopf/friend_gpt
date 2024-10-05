@@ -264,8 +264,9 @@ class FriendGPT:
                         # run checks for background tasks
                         self.add_new_msgs_to_queue()
                         # check if chat length is past threshold to ingest
-                        if time.time() - self.last_ingest_time > self.cfg.VECTOR_MEMORY_INTERVAL:
-                            self.ingest_history_to_vector_memory()
+                        if time.time() - self.last_ingest_time > self.cfg.CHAT_VECTOR_MEMORY_INTERVAL:
+                            # self.ingest_history_to_vector_memory()
+                            pass
    
             except Exception as e:
                 print(f'Error while starting the next action: {e}')
@@ -284,7 +285,7 @@ class FriendGPT:
         intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
 
         # load recent chat histories
-        chat = self.core_memory.get_recent_chan_hist(chan_id, self.cfg.LONG_HISTORY_LENGTH)
+        chat = self.core_memory.get_recent_channel_hist(chan_id, self.cfg.LONG_HISTORY_LENGTH)
         short_history = chat.formatted_short_history
         long_history = chat.formatted_long_history
 

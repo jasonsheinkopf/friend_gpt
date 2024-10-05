@@ -39,20 +39,9 @@ class CoreMemory:
         self.cfg = cfg
         self.agent_name = agent_name
         self.agent_id = agent_id
-        self.create_tables()
         self.vector_model = SentenceTransformer(self.cfg.CHAT_VECTOR_EMBEDDING_MODEL)
-
-        # get vector model embed dim
-        # embed_dim = self.vector_model.get_sentence_embedding_dimension()
-
-        # # load or init FAISS index
-        # if os.path.exists(self.cfg.CHAT_VECTOR_MEMORY_PATH):
-        #     vector_index = faiss.read_index(self.cfg.CHAT_VECTOR_MEMORY_PATH)
-        #     print(f"Loaded FAISS index from {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
-        # else:
-        #     vector_index = faiss.IndexHNSWFlat(embed_dim, self.cfg.CHAT_EMBED_NEIGHBORS)
-        #     print(f"Initialized new FAISS index")
-        #     print(f"Created new FAISS index at {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
+        self.load_chat_vector_index()
+        self.create_tables()
 
     @with_connection
     def create_tables(self, cursor):
@@ -73,6 +62,7 @@ class CoreMemory:
                 guild INTEGER,
                 is_dm BOOLEAN,
                 ingested INTEGER DEFAULT -1,
+                summarized BOOLEAN DEFAULT FALSE,
                 message TEXT
             )
             """
@@ -202,7 +192,7 @@ class CoreMemory:
         )
 
     @with_connection
-    def get_recent_chan_hist(self, cursor, chan_id, num_msg):
+    def get_recent_channel_hist(self, cursor, chan_id, num_msg):
         """
         Retrieves chat object for specific channel with recent messages.
         """
@@ -231,20 +221,35 @@ class CoreMemory:
         count_query = """
         SELECT COUNT(*)
         FROM chat_history
-        WHERE channel = ? AND ingested = FALSE
+        WHERE channel = ? AND ingested = -1
         """
         cursor.execute(count_query, (chan_id,))
         count = cursor.fetchone()[0]
 
         # check if below threshold
-        if count < self.cfg.CHAT_VECTOR_MEMORY_THRESHOLD:
+        if count < self.cfg.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE:
             return None
+        
+        # chunk size should like be less than max chunk size
+        max_chunk_size = self.cfg.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE * 2
+        
+        # try different numbers of chunks
+        for num_chunks in range(1, 1000):
+            # find chunk size that is less than max size
+            if count // num_chunks + count % num_chunks < max_chunk_size:
+                chunk_quantity = num_chunks
+                break
+
+        # create chunk indices such that the last chunk takes any leftover rows
+        base_chunk_size = count // chunk_quantity
+        chunk_indices = [base_chunk_size * i for i in range(chunk_quantity)]
+
 
         # Retrieve all un-ingested messages
         query = """
-        SELECT timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
+        SELECT id, timestamp, sender_id, sender_nick, recipient_id, recipient_nick, message, is_dm, guild
         FROM chat_history
-        WHERE channel = ? AND ingested = FALSE
+        WHERE channel = ? AND ingested = -1
         ORDER BY timestamp DESC
         """
         cursor.execute(query, (chan_id,))
@@ -253,51 +258,65 @@ class CoreMemory:
         # Reverse the order to display the oldest message first
         rows.reverse()
 
-        # break list into chunks of size VECTOR_MEMORY_CHUNK_SIZE
-        uningested_chunks_list = [rows[i:i + self.cfg.CHAT_VECTOR_MEMORY_CHUNK_SIZE] for i in range(0, len(rows), self.cfg.CHAT_VECTOR_MEMORY_CHUNK_SIZE)]
-        print(uningested_chunks_list)
-        # unroll chunk lists into formatted strings
-        uningested_history = []
-        for chunk in uningested_chunks_list:
+        chunk_sizes = []
+
+        # iterate over each chunk
+        for i in range(len(chunk_indices)):
+            start_idx = chunk_indices[i]
+            # if its the last chunk, take all remaining rows
+            if i == len(chunk_indices) - 1:
+                chunk = rows[start_idx:]
+            else:
+                end_idx = chunk_indices[i + 1]
+                chunk = rows[start_idx:end_idx]
+
+            # track chunk sizes for logging
+            chunk_sizes.append(len(chunk))
+
+            # format chunk rows to single formatted string
             chat = self.format_chat_history(chunk, chan_id)
-            uningested_history.append(chat.formatted_long_history)
+            formatted_chunk_string = chat.formatted_long_history
 
-        # return uningested_history
-        # print(uningested_history)
+            # generate chunk embeddings
+            embeddings = self.vector_model.encode(formatted_chunk_string)
+            embeddings = np.array(embeddings, dtype=np.float32).reshape(1, -1)
 
-        # generate chunk embeddings
-        embeddings = self.vector_model.encode(uningested_history)
-        embeddings = np.array(embeddings, dtype=np.float32)
-        
-        vector_index = self.load_chat_vector_index()
-        # vector_index = faiss.IndexFlatL2(self.vector_model.get_sentence_embedding_dimension())
+            # add embeddings to vector index
+            self.chat_vector_index.add(embeddings)
 
-        # add embeddings to vector index
-        vector_index.add(embeddings)
+            # check current index size to use as chunk locator
+            index_locator = self.chat_vector_index.ntotal
 
-        # save index
-        faiss.write_index(vector_index, self.cfg.CHAT_VECTOR_MEMORY_PATH)
+            # update vector store index locator in database
+            for row in chunk:
+                update_query = """
+                UPDATE chat_history
+                SET ingested = ?
+                WHERE channel = ? AND id = ?
+                """
+                cursor.execute(update_query, (index_locator, chan_id, row[0]))
+
+        # write index attribute to file
+        faiss.write_index(self.chat_vector_index, self.cfg.CHAT_VECTOR_MEMORY_PATH)
         print(f"Saved FAISS index to {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
-        # min length of string from uningesed history
-        min_size = min([len(x) for x in uningested_history])
-        max_size = max([len(x) for x in uningested_history])
-        print(f'Added {len(uningested_history)} chunks of size range {min_size} to {max_size} to vector memory.')
+        # Min and max size of chunks for logging
+        min_size = min(chunk_sizes)
+        max_size = max(chunk_sizes)
+        print(f'Added {len(chunk_sizes)} chunks of size range {min_size} to {max_size} to vector memory.')
 
     def load_chat_vector_index(self):
         if os.path.exists(self.cfg.CHAT_VECTOR_MEMORY_PATH):
-            vector_index = faiss.read_index(self.cfg.CHAT_VECTOR_MEMORY_PATH)
+            self.chat_vector_index = faiss.read_index(self.cfg.CHAT_VECTOR_MEMORY_PATH)
             print(f"Loaded FAISS index from {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
         else:
-            vector_index = faiss.IndexHNSWFlat(self.vector_model.get_sentence_embedding_dimension(), self.cfg.CHAT_EMBED_NEIGHBORS)
-            print(f"Initialized new FAISS index")
-            print(f"Created new FAISS index at {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
-        return vector_index
+            # self.chat_vector_index = faiss.IndexHNSWFlat(self.vector_model.get_sentence_embedding_dimension(), self.cfg.CHAT_EMBED_NEIGHBORS)
+            self.chat_vector_index = faiss.IndexFlatL2(self.vector_model.get_sentence_embedding_dimension())
+            print(f"Created new FAISS index")
 
     def chat_vector_search(self, query_text, k=1):
         """
         Search the chat vector memory for the closest k vectors to the query text.
         """
-        vector_index = self.load_chat_vector_index()
         # Ensure the query is in list format and output is in float32 format for FAISS compatibility
         query_embedding = self.vector_model.encode([query_text])  # Keep as list to match model input requirements
         print(query_embedding)
@@ -305,28 +324,24 @@ class CoreMemory:
         print(query_embedding)
 
         # Perform the search on the FAISS index
-        D, I = vector_index.search(query_embedding, k)
+        D, I = self.chat_vector_index.search(query_embedding, k)
 
         # Return the distances and indices
         return D, I
-    
-    @with_connection
-    def ingest_chat_history_to_vector_memory(self, cursor, chan_id):
-        """Ingest un-ingested chat history to vector memory."""
-        print(f"Ingesting chat history for channel {chan_id} to vector memory.")
 
     def format_chat_history(self, rows, chan_id):
         chat = ChatHistory(chan_id, self.cfg)
 
         for idx, row in enumerate(rows):
-            timestamp = row[0]
-            sender_id = row[1]
-            sender_nick = row[2]
-            recipient_id = row[3]
-            recipient_nick = row[4]
-            message = row[5]
-            is_dm = row[6]
-            guild_id = row[7]
+            idx = row[0]
+            # timestamp = row[1]
+            sender_id = row[2]
+            sender_nick = row[3]
+            recipient_id = row[4]
+            recipient_nick = row[5]
+            message = row[6]
+            is_dm = row[7]
+            guild_id = row[8]
             
             # Format the sender and recipient
             if sender_nick == self.agent_name:
@@ -337,7 +352,7 @@ class CoreMemory:
             sender = f'{sender_nick} ({sender_id})'
             if recipient_nick == self.agent_name:
                 recipient_id = 'Agent'
-            recipient = f'{recipient_nick} ({recipient_id})'
+            # recipient = f'{recipient_nick} ({recipient_id})'
             # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
             # chat.long_history.append(f'[{timestamp}] {sender} -> {recipient}: {message}')
             chat.long_history.append(f'{sender}: {message}')

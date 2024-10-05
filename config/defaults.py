@@ -43,10 +43,7 @@ _C.SHORT_HISTORY_LENGTH = 5
 _C.CHAT_VECTOR_MEMORY_PATH = 'memories/chat_vector_memory.faiss'
 
 # chat threshold after which recent chat history should by ingested to vector memory
-_C.CHAT_VECTOR_MEMORY_THRESHOLD = 5
-
-# number of lines to store in each chunk of vector memory
-_C.CHAT_VECTOR_MEMORY_CHUNK_SIZE = 10
+_C.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE = 4
 
 # duration in seconds between checking for vector chat history to ingest
 _C.CHAT_VECTOR_MEMORY_INTERVAL = 60
