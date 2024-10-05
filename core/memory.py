@@ -78,7 +78,9 @@ class CoreMemory:
             """
             CREATE TABLE IF NOT EXISTS chat_vector_memory (
                 chunk_idx INTEGER PRIMARY KEY,
-                chunk_text TEXT
+                chunk_text TEXT,
+                start_time TEXT,
+                end_time TEXT
             )
             """
         )
@@ -95,61 +97,6 @@ class CoreMemory:
         #     )
         #     """
         # )
-
-    # @with_connection
-    # def get_uningested_channel_history(self, cursor, chan_id, chunk_size=100):
-    #     """
-    #     Count number of un-ingested messages for a specific channel and ingests them if they exceed the threshold.
-    #     Ingestion involves updating contact_info and adding chunk to vectorizer.
-    #     """
-    #     # how far back to look for un-ingested messages
-    #     history_window = chunk_size * 2
-    #     # Step 1: Query the count of un-ingested messages for the specific channel within the last 'limit' rows ordered by timestamp
-    #     count_query = """
-    #     SELECT COUNT(*) FROM (
-    #         SELECT * FROM chat_history
-    #         WHERE ingested = FALSE AND channel = ?
-    #         ORDER BY timestamp DESC
-    #         LIMIT ?
-    #     )
-    #     """
-        
-    #     cursor.execute(count_query, (chan_id, history_window))
-    #     message_count = cursor.fetchone()[0]
-
-    #     # Step 2: Check if the number of messages exceeds the threshold
-    #     if message_count >= chunk_size:
-    #         # Step 3: Query actual un-ingested messages now that we know the count, still limiting to the last 'limit' rows
-    #         query = """
-    #         SELECT sender_id, sender_nick, sender_user, recipient_id, recipient_nick, recipient_user, channel, guild
-    #         FROM chat_history
-    #         WHERE ingested = FALSE AND channel = ?
-    #         ORDER BY timestamp DESC
-    #         LIMIT ?
-    #         """
-            
-    #         cursor.execute(query, (chan_id, message_count))
-    #         rows = cursor.fetchall()
-
-    #         # Step 4: Ingest the history for this channel
-    #         if rows:  # Ensure there are rows before calling the next function
-    #             long_history, short_history, _ = self.get_formatted_chat_history(chan_id, len(rows))
-
-    #             # Step 5: Mark these messages as ingested in the database
-    #             update_query = """
-    #             UPDATE chat_history
-    #             SET ingested = TRUE
-    #             WHERE channel = ? AND ingested = FALSE
-    #             AND timestamp <= (SELECT timestamp FROM chat_history WHERE channel = ? ORDER BY timestamp DESC LIMIT 1 OFFSET ?)
-    #             """
-    #             cursor.execute(update_query, (chan_id, chan_id, message_count))
-    #             return formatted_history
-    #         else:
-    #             print(f"No un-ingested messages found for channel {chan_id}")
-    #             return None
-    #     else:
-    #         print(f"Channel {chan_id} does not have enough messages (only {message_count} found).")
-    #         return None
 
     @with_connection
     def add_incoming_to_memory(self, cursor, in_message, received_time):
@@ -276,6 +223,9 @@ class CoreMemory:
         # Reverse the order to display the oldest message first
         rows.reverse()
 
+        start_time = rows[0][1]
+        end_time = rows[-1][1]
+
         chunk_sizes = []
 
         # iterate over each chunk
@@ -312,14 +262,16 @@ class CoreMemory:
                 SET chunk_idx = ?
                 WHERE channel = ? AND id = ?
                 """
-                cursor.execute(update_query, (index_locator, chan_id, row[0]))
+                chat_values = (index_locator, chan_id, row[0])
+                cursor.execute(update_query, chat_values)
 
             # add chunk to vector memory
             insert_query = """
-            INSERT INTO chat_vector_memory (chunk_idx, chunk_text)
-            VALUES (?, ?)
+            INSERT INTO chat_vector_memory (chunk_idx, chunk_text, start_time, end_time)
+            VALUES (?, ?, ?, ?)
             """
-            cursor.execute(insert_query, (index_locator, formatted_chunk_string))
+            vector_values = (index_locator, formatted_chunk_string, start_time, end_time)
+            cursor.execute(insert_query, vector_values)
 
         # write index attribute to file
         faiss.write_index(self.chat_vector_index, self.cfg.CHAT_VECTOR_MEMORY_PATH)
@@ -372,7 +324,7 @@ class CoreMemory:
 
         for idx, row in enumerate(rows):
             # id = row[0]
-            # timestamp = row[1]
+            timestamp = row[1]
             sender_id = row[2]
             sender_nick = row[3]
             recipient_id = row[4]
@@ -388,12 +340,12 @@ class CoreMemory:
             else:
                 chat.speaker_is_agent_list.append(False)
             sender = f'{sender_nick} ({sender_id})'
-            # if recipient_nick == self.agent_name:
-            #     recipient_id = 'Agent'
-            # recipient = f'{recipient_nick} ({recipient_id})'
-            # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
+
             # chat.long_history.append(f'[{timestamp}] {sender} -> {recipient}: {message}')
-            chat.long_history.append(f'{sender}: {message}')
+            # [2024-10-01 23:31:39] User (360964041130115072) -> Friend GPT (Agent): Message
+
+            chat.long_history.append(f'[{timestamp}] {sender}: {message}')
+            # chat.long_history.append(f'{sender}: {message}')
 
             # add list of unique senders
             if sender_nick != self.agent_name:
@@ -483,19 +435,17 @@ class ChatHistory:
         else:
             chat_text = f'Group chat with {unique_names_string} in Channel {self.chan_id}, Guild {self.guild_id}\n'
         
-        # get short history which will be used as next prompt
+        # get short history which will be used as current query for agent to respond to
         self.short_history = self.long_history[-self.cfg.SHORT_HISTORY_LENGTH:]
 
         # format histories to be LLM friendly
-        self.formatted_long_history = '\n'.join(self.long_history) + '\n' + chat_text
+        self.formatted_long_history = chat_text + '\n'.join(self.long_history) + '\n'
         self.formatted_short_history = '\n'.join(self.short_history)
 
     def should_respond(self):
         # if last speaker was the user, then the agent should respond
         if self.speaker_is_agent_list[-1] is False:
             agent_should_respond = True
-            # print('last speaker was the user', self.chan_id)
-            # print(self.formatted_long_history)
         # if the second and third to last were the user, then the agent should respond
         elif len(self.speaker_is_agent_list) > 2 and self.speaker_is_agent_list[-2] == False and self.speaker_is_agent_list[-3] == False:
             # print('second and third to last speakers were the user')
