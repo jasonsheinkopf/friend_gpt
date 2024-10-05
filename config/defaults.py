@@ -4,7 +4,7 @@ _C = CfgNode()
 
 _C.CORE_MEMORY_PATH = "memories/core_memory.db"
 
-_C.MODEL = "gemma2:9b"
+_C.MODEL = "llama3.1:8b"
 
 _C.NEWS_MODEL = "llama3.1:8b"
 
@@ -34,16 +34,16 @@ _C.PERSONALITY_PATH = 'memories/personality.txt'
 _C.TYPING_SPEED = 50
 
 # length of chat history tail to show in the prompt
-_C.LONG_HISTORY_LENGTH = 100
+_C.LONG_HISTORY_LENGTH = 15
 
 # length of chat history tail to generate response to
-_C.SHORT_HISTORY_LENGTH = 5
+_C.SHORT_HISTORY_LENGTH = 4
 
 # path to save long term vector memory
 _C.CHAT_VECTOR_MEMORY_PATH = 'memories/chat_vector_memory.faiss'
 
 # chat threshold after which recent chat history should by ingested to vector memory
-_C.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE = 4
+_C.CHAT_VECTOR_MEMORY_MIN_CHUNK_SIZE = 5
 
 # duration in seconds between checking for vector chat history to ingest
 _C.CHAT_VECTOR_MEMORY_INTERVAL = 10
@@ -52,6 +52,9 @@ _C.CHAT_VECTOR_MEMORY_INTERVAL = 10
 _C.CHAT_VECTOR_EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
 
 _C.CHAT_EMBED_NEIGHBORS = 32
+
+# number of vector chat search results to include in prompt
+_C.NUM_LONG_TERM_MEMORY_RETRIEVALS = 4
 
 _C.LANGUAGE = 'english'
 

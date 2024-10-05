@@ -78,7 +78,10 @@ class FriendGPT:
 
     def set_prompt_template(self):
         self.prompt_template = textwrap.dedent('''\
-            You are an agent chatting with friend(s) on Discord with this recent chat history:
+            Past relevant chat histories:
+            {vector_retrievals}
+                                               
+            Recent chat history:
             {chat_history}
 
             Your personality is:
@@ -292,6 +295,9 @@ class FriendGPT:
         short_history = chat.formatted_short_history
         long_history = chat.formatted_long_history
 
+        # load relevant vectors from memory
+        vector_retrievals = self.core_memory.chat_vector_search(short_history, k=self.cfg.NUM_LONG_TERM_MEMORY_RETRIEVALS)
+
         agent = (
             {
                 "input": lambda x: x["input"],
@@ -303,6 +309,7 @@ class FriendGPT:
                 "current_model": lambda x: x["current_model"],
                 "available_models": lambda x: x["available_models"],
                 "short_term_memory": lambda x: x["short_term_memory"],
+                "vector_retrievals": lambda x: x["vector_retrievals"],
             }
             | prompt
             | llm
@@ -323,6 +330,7 @@ class FriendGPT:
                 'current_model': self.cfg.MODEL,
                 'available_models': self.cfg.AVAILABLE_MODELS,
                 'short_term_memory': self.short_term_memory,
+                'vector_retrievals': "\n".join(vector_retrievals)
             }
             result = agent.invoke(prompt_kwargs)
 

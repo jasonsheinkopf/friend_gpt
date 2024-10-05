@@ -295,12 +295,17 @@ class CoreMemory:
         """
         Search the chat vector memory for the closest k vectors to the query text.
         """
+        # check if chat_vector_index is empty
+        num_vectors = self.chat_vector_index.ntotal
+        if num_vectors == 0:
+            print("No chat vector memory to search.")
+            return []
         # Ensure the query is in list format and output is in float32 format for FAISS compatibility
         query_embedding = self.vector_model.encode([query_text])  # Keep as list to match model input requirements
         query_embedding = np.array(query_embedding, dtype='float32')  # Convert to float32 for FAISS
 
         # Perform the search on the FAISS index
-        _, indices = self.chat_vector_index.search(query_embedding, k)
+        _, indices = self.chat_vector_index.search(query_embedding, min(k, num_vectors))
 
         # iterate over the indices to retrieve the corresponding chat history
         retrievals = []
@@ -315,7 +320,6 @@ class CoreMemory:
             chunk_text = cursor.fetchone()[0]
             if chunk_text:
                 retrievals.append(chunk_text)
-        print(type(retrievals))
         # Return the distances and indices
         return retrievals
 
