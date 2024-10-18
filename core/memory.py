@@ -2,10 +2,10 @@ import sqlite3
 import discord
 import pandas as pd
 from functools import wraps
-from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import os
+from sentence_transformers import SentenceTransformer
 
 def with_connection(func):
     '''Decorator to create a new connection and cursor for each function call.'''
@@ -286,9 +286,9 @@ class CoreMemory:
             self.chat_vector_index = faiss.read_index(self.cfg.CHAT_VECTOR_MEMORY_PATH)
             print(f"Loaded FAISS index from {self.cfg.CHAT_VECTOR_MEMORY_PATH}")
         else:
-            # self.chat_vector_index = faiss.IndexHNSWFlat(self.vector_model.get_sentence_embedding_dimension(), self.cfg.CHAT_EMBED_NEIGHBORS)
             self.chat_vector_index = faiss.IndexFlatL2(self.vector_model.get_sentence_embedding_dimension())
-            print(f"Created new FAISS index")
+            faiss.write_index(self.chat_vector_index, self.cfg.CHAT_VECTOR_MEMORY_PATH)
+            print(f"Created and saved new FAISS index")
 
     @with_connection
     def chat_vector_search(self, cursor, query_text, k=2):
