@@ -3,6 +3,8 @@ old/
 memories/
 .venv/
 __pycache__/
+config/__pycache__/
+core/__pycache__/
 *.pyc
 output/
 git add .gitignore
