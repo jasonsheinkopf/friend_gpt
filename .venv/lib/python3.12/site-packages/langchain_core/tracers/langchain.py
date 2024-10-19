@@ -84,6 +84,8 @@ def _run_to_dict(run: Run) -> dict:
 class LangChainTracer(BaseTracer):
     """Implementation of the SharedTracer that POSTS to the LangChain endpoint."""
 
+    run_inline = True
+
     def __init__(
         self,
         example_id: Optional[Union[UUID, str]] = None,
@@ -121,7 +123,7 @@ class LangChainTracer(BaseTracer):
 
         super()._start_trace(run)
         if run._client is None:
-            run._client = self.client
+            run._client = self.client  # type: ignore
 
     def on_chat_model_start(
         self,
@@ -189,7 +191,8 @@ class LangChainTracer(BaseTracer):
             ValueError: If the run URL cannot be found.
         """
         if not self.latest_run:
-            raise ValueError("No traced run found.")
+            msg = "No traced run found."
+            raise ValueError(msg)
         # If this is the first run in a project, the project may not yet be created.
         # This method is only really useful for debugging flows, so we will assume
         # there is some tolerace for latency.
@@ -202,7 +205,8 @@ class LangChainTracer(BaseTracer):
                 return self.client.get_run_url(
                     run=self.latest_run, project_name=self.project_name
                 )
-        raise ValueError("Failed to get run URL.")
+        msg = "Failed to get run URL."
+        raise ValueError(msg)
 
     def _get_tags(self, run: Run) -> list[str]:
         """Get combined tags for a run."""

@@ -4,7 +4,7 @@ _C = CfgNode()
 
 _C.CORE_MEMORY_PATH = "memories/core_memory.db"
 
-_C.MODEL = "llama3.1:8b"
+_C.MODEL = "gpt-4o-mini"
 
 _C.NEWS_MODEL = "llama3.1:8b"
 
@@ -33,23 +33,25 @@ Chat History:
 _C.AVAILABLE_MODELS = [
     'llama3.1:8b',
     'gemma2:9b',
-    'phi3:latest'
+    'phi3:latest',
+    'gpt-4o-mini'
 ]
 
 # remove {discord_bot_username} if you want to create a custom name
-_C.STARTER_PERSONALITY = '''You're playing the role a real person named {agent_username}
-chatting with your friends on Discord. You are very smart and very knowledgeable and likeable.
-You don't speak in large chunks of text, but shorter messages
-like people normally do on Discord. Sometimes, you make spelling mistakes like people normally do.
-You have a good memory of what people have said to you and you can remember facts about them.
-You have your own life and can make up those details as you go. You're not a robot, but a person.
-Even though you're playing the role of a real person, you have all the knowledge of the internet.
-'''
-
-# _C.STARTER_PERSONALITY = '''You're a smart, knowledgeable, and helpful Discord bot named {agent_username}.
-# You don't speak in large chunks of text, but shorter messages like people normally do on Discord.
-# You like to help people and are very friendly. You have a good memory of what people have said to you.
+# _C.STARTER_PERSONALITY = '''You're playing the role a real person named {agent_username}
+# chatting with your friends on Discord. You are very smart and very knowledgeable and likeable.
+# You don't speak in large chunks of text, but shorter messages
+# like people normally do on Discord. Sometimes, you make spelling mistakes like people normally do.
+# You have a good memory of what people have said to you and you can remember facts about them.
+# You have your own life and can make up those details as you go. You're not a robot, but a person.
+# Even though you're playing the role of a real person, you have all the knowledge of the internet.
 # '''
+
+_C.STARTER_PERSONALITY = '''You're a smart, knowledgeable, and helpful Discord bot named {agent_username}.
+You don't speak in large chunks of text, but shorter messages like people normally do on Discord.
+You like to help people and are very friendly. You have a good memory of what people have said to you.
+You follow instructions extremely well.
+'''
 
 # True to always use starter personality, False to use dynamic personality from database
 _C.USE_STARTER_PERSONALITY = True

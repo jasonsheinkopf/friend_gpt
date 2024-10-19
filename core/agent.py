@@ -1,4 +1,5 @@
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.tools.render import render_text_description
 from typing import List
@@ -39,6 +40,7 @@ class FriendGPT:
         self.running = False  # flag to stop the thread
         self.busy = False  # flag to check if the agent is busy
         self.last_ingest_time = time.time()
+        self.model_name = self.cfg.MODEL
 
     def with_busy_state(func):
         """Decorator to handle setting busy state before and after a task."""
@@ -77,39 +79,42 @@ class FriendGPT:
 
     def set_prompt_template(self):
         self.prompt_template = textwrap.dedent('''\
-            Past relevant chat histories:
-            {vector_retrievals}
-                                               
-            Recent chat history:
-            {chat_history}
-
             Your personality is:
             {personality}
-
+                                               
+            Short Term Memory:
+            {chat_history}
+                                               
+            Relevant Long Term Memory:
+            {vector_retrievals}
+                                               
             Your current LLM model is:
             {current_model}
 
             The LLM models available to you are:
             {available_models}
 
-            You have the following tools available to you to help you respond to only the most recent user message:
+            You have the following tools available to you:
             {tools}
-
-            To decide whether to use a tool or simply respond to the user, consider your last thought:
-            {last_thought}
 
             Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
             {{
-                "thought": "In this space, think carefully and write what they are asking for. Don't trust your memory for current events or hyperlinks.",
-                "action": one of "respond, use_tool", # consider your thought '{last_thought}' to decide which action to take
+                "thought": "Write down your thougt process here. Do you need to use a tool or not?",
+                "action": one of "{tool_use_hint}",
                 "tool_name": one of {tool_names},
-                "tool_input": "tool input argument matching the tool's docsstring requirements",
+                "tool_input": "tool input argument matching the tool's docs string requirements",
                 "response": "string response to the user"
             }}
 
             Most Recent User Input:
             {input}
+                                               
+            Agent Scratchpad:
+            {agent_scratchpad}
 
+            This will help you decide whether to use a tool or not.
+            {tool_use_hint}            
+            
             Begin!
             ''')
 
@@ -282,9 +287,10 @@ class FriendGPT:
             tools=render_text_description(self.tools),
             tool_names=self.tool_names,
         )
-
-        llm = ChatOllama(model=self.cfg.MODEL)
+        llm = ChatOpenAI(model=self.cfg.MODEL) if 'gpt' in self.cfg.MODEL else ChatOllama(model=self.cfg.MODEL)
         intermediate_steps = ['0. Agent First Thought: Is a tool necessary to respond to the user or not?']
+
+        tool_use_hint = "'use_tool', 'respond'"
 
         # load recent chat histories
         chat = self.core_memory.get_recent_channel_hist(chan_id, self.cfg.LONG_HISTORY_LENGTH)
@@ -301,7 +307,7 @@ class FriendGPT:
                 "chat_history": lambda x: x["chat_history"],
                 "personality": lambda x: x["personality"],
                 "thought": lambda x: x["thought"],
-                "last_thought": lambda x: x["last_thought"],
+                "tool_use_hint": lambda x: x["tool_use_hint"],
                 "current_model": lambda x: x["current_model"],
                 "available_models": lambda x: x["available_models"],
                 "vector_retrievals": lambda x: x["vector_retrievals"],
@@ -321,8 +327,8 @@ class FriendGPT:
                 'personality': self.personality,
                 'agent_scratchpad': "\n".join(intermediate_steps),
                 'thought': "0. I'm thinking about what to do next...",
-                'last_thought': intermediate_steps[-1],
-                'current_model': self.cfg.MODEL,
+                'tool_use_hint': tool_use_hint,
+                'current_model': self.model_name,
                 'available_models': self.cfg.AVAILABLE_MODELS,
                 'vector_retrievals': "\n".join(vector_retrievals)
             }
@@ -368,16 +374,21 @@ class FriendGPT:
                 tool_input = response_dict['tool_input']
                 # call the tool function
                 tool_return = tool_to_use.func(agent=self, tool_input=str(tool_input))
+
+                # indicate tool has been used
+                tool_use_hint = "'respond'"
    
                 # if expected response not given, reprompt LLM
                 intermediate_steps.append(f'{len(intermediate_steps)}. Agent Thought: {agent_thought}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Used: {tool_name}') 
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Input: {tool_input}')
                 intermediate_steps.append(f'{len(intermediate_steps)}. Tool Output: {tool_return}')
+                intermediate_steps.append(f'{len(intermediate_steps)}. Tool Use Hint: {tool_use_hint}')
 
                 # print intermediate steps
                 print('\nIntermediate Steps:')
                 print('\n'.join(intermediate_steps))
+
             # handle missing response error
             if 'response' in response_dict:
                 response = response_dict['response']
