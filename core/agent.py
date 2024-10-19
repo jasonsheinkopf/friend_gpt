@@ -30,7 +30,6 @@ class FriendGPT:
         self.tool_names = ", ".join([t.name for t in self.tools])
         self.set_prompt_template()
         self.core_memory = None
-        self.short_term_memory = None
         self.agent = None
         self.id = None
         self.name = None
@@ -93,14 +92,11 @@ class FriendGPT:
             The LLM models available to you are:
             {available_models}
 
-            Your short-term memory is:
-            {short_term_memory}
-
             You have the following tools available to you to help you respond to only the most recent user message:
             {tools}
 
-            To decide whether to use a tool or simply respond to the user, consider your thought history:
-            {agent_scratchpad}
+            To decide whether to use a tool or simply respond to the user, consider your last thought:
+            {last_thought}
 
             Reply in the following properly formatted JSON format where all keys and values are strings. Do not include comments:
             {{
@@ -308,7 +304,6 @@ class FriendGPT:
                 "last_thought": lambda x: x["last_thought"],
                 "current_model": lambda x: x["current_model"],
                 "available_models": lambda x: x["available_models"],
-                "short_term_memory": lambda x: x["short_term_memory"],
                 "vector_retrievals": lambda x: x["vector_retrievals"],
             }
             | prompt
@@ -329,7 +324,6 @@ class FriendGPT:
                 'last_thought': intermediate_steps[-1],
                 'current_model': self.cfg.MODEL,
                 'available_models': self.cfg.AVAILABLE_MODELS,
-                'short_term_memory': self.short_term_memory,
                 'vector_retrievals': "\n".join(vector_retrievals)
             }
             result = agent.invoke(prompt_kwargs)

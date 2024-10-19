@@ -1,8 +1,5 @@
 from langchain.tools import tool
-from asknews_sdk import AskNewsSDK
 from dotenv import load_dotenv
-import requests
-from bs4 import BeautifulSoup
 from core.specialists.news_specialist import NewsSpecialist
 import textwrap
 from langdetect import detect
@@ -37,64 +34,33 @@ def change_model(agent, tool_input: str) -> str:
         response = f'The model {tool_input} is not available. The available models are {agent.available_models}.'
     return None, response
 
-# @tool
-# def search_news(agent, tool_input: str) -> str:
-#     '''
-#     Use this tool only if the user asks specifically for news. Us it to search for a news article
-#     and summarize it to your short term memory.
-#     Do NOT use this tool if you are asked to discuss an article you have already read.
-#     tool_input: 1-2 word basic search terms for one relevant topic (excluding the word "news").
-#     '''
-#     search_term = tool_input
+@tool
+def search_news(agent, tool_input: str) -> str:
+    '''
+    Use this tool only if the user asks specifically for news. Use it to so search for news articles,
+    summarize them, and provide the user with the URL and summary of the most relevant article.
+    Do NOT use this tool if you are asked to discuss an article you have already read.
+    tool_input: the last 4 complete lines of chat history ignoring timestamps
+    '''
+    chat_history = tool_input
 
-#     # get recent chat history
-#     chat_history = agent.core_memory.get_formatted_chat_history(agent.current_channel, 2)
+    # create instance of NewsSpecialist
+    specialist = NewsSpecialist(agent.cfg, chat_history)
 
-#     # create instance of NewsSpecialist
-#     specialist = NewsSpecialist(agent.cfg)
+    url, article_summary = specialist.get_news_summary_workflow(chat_history)
 
-#     attempts = 0
+    if article_summary is not None:
+        response = textwrap.dedent(f'''\
+            The tool worked! Now share the url:
+            {url}
+            
+            And share the article summary:
+            {article_summary}
+            ''')
+        return response
+    else:
+        response = f"No articles found. Respond to the user to let them know. Don't try again."
 
-#     while attempts < 3:
-#         # get search term from chat history using LLM
-#         # search_term = specialist.get_search_term(chat_history)
-        
-#         # select most relevant article using LLM
-#         top_article = specialist.get_top_article(search_term, chat_history)
+        print(f'No articles found.')
 
-#         if top_article is None:
-#             break
-
-#         # retrieve the article text
-#         url, title, article_text = specialist.retrieve_article_text(top_article)
-
-#         # summarize the article
-#         article_summary = specialist.summarize_article(article_text)
-
-#         if article_summary is not None:
-#             # add the article to the agent's short term memory
-#             agent.short_term_memory = textwrap.dedent(f"""\
-#                 You have read the following article:
-#                 {title}
-
-#                 From:
-#                 {url}
-
-#                 Article Summary:
-#                 {article_summary}
-#                 """)
-
-#             response = textwrap.dedent(f'''\
-#                 The tool worked! Now do the following:
-#                     1) set "action": "respond"
-#                     2) share the url in your response: {url}
-#                     3) share this article summary: {article_summary}
-#                 ''')
-#             return response
-#         else:
-#             response = f"No articles found on {search_term} Respond to the user to let them know. Don't try again."
-
-#             print(f'No articles found on ({search_term}). Attempt {attempts + 1}')
-#             attempts += 1
-
-#     return response
+    return response

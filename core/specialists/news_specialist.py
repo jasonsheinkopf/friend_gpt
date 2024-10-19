@@ -1,7 +1,6 @@
 from langchain_ollama import ChatOllama
 from langchain.prompts import PromptTemplate
 from datetime import datetime, timedelta
-from asknews_sdk import AskNewsSDK
 import os
 from newsapi import NewsApiClient
 import requests
@@ -11,80 +10,44 @@ import textwrap
 
 
 class NewsSpecialist:
-    def __init__(self, cfg):
+    def __init__(self, cfg, chat_history):
         self.cfg = cfg
         self.today = datetime.today().strftime('%Y-%m-%d')
         self.last_month = (datetime.today() - timedelta(days=30)).strftime('%Y-%m-%d')
         self.num_articles = 10
         self.articles_meta = []
         self.api_error = ''
+        self.chat_history = chat_history
 
-    def get_search_term(self, context):
-        '''Returns most likely search term based on the context'''
+    def get_search_term(self):
+        '''Returns most likely search term based on the chat history'''
         search_term_prompt_template = textwrap.dedent(f'''\
-            Consider the chat context below. You need to think carefully about
-            one single news topic to create a correctly-spelled and formatted search term for.
-            Focus on the last topic discussed and don't mix up multiple topics. What are the most important. Generate a
-            few keywords to use in a news API search. Consider the last line the most significant.
+            Consider the chat history. You need to think carefully about
+            one single news topic to create a correctly-spelled and formatted search query for.
+            Focus on the last topic discussed and don't mix up multiple topics. Generate a
+            few keywords to use in a news API search. Consider the last chat line to be most significant.
 
-            Context:
-            {context}
+            Chat History:
+            {self.chat_history}
 
-            Only reply with one keyord search. Nothing before or after it. Exclude the word "news"
+            Only reply with keyword search. Nothing before or after it. Exclude the word "news"
             Keywords:
             ''')
-        prompt = PromptTemplate.from_template(search_term_prompt_template)
+
         llm = ChatOllama(model=self.cfg.NEWS_MODEL)
 
-        agent = (
-            {
-                'context': lambda x: x['context'],
-            }
-            | prompt
-            | llm
-        )
-
-        result = agent.invoke({
-            'context': context,
-        })
+        result = llm.invoke(search_term_prompt_template)
         print(f'Response from get_search_term: {result.content}')
         return result.content.replace('news', '')
 
-    def get_articles_meta(self, topic):
+    def get_articles_meta(self, search_term):
         '''
         Get the metadata of the articles from news APIs
         '''
-        # try:
-        #     sdk = AskNewsSDK(
-        #         client_id=os.getenv('ASKNEWS_CLIENT_ID'),
-        #         client_secret=os.getenv('ASKNEWS_CLIENT_SECRET'),
-        #         scopes=['news']
-        #     )
-        #     articles = sdk.news.search_news(
-        #         query=topic,
-        #         n_articles=self.num_articles,
-        #         return_type='dicts',
-        #         method='nl',
-        #     )
-
-        #     for art_dict in articles.as_dicts:
-        #         self.articles_meta.append({
-        #             'title': art_dict.eng_title,
-        #             'date': art_dict.pub_date,
-        #             'url': art_dict.article_url,
-        #             'summary': art_dict.summary
-        #         })
-
-        # except Exception as e:
-        #     self.api_error += f'AskNews API error: {e}\n'
-        #     # print(f'AskNews API error: {e}')
-
-        # if not enough articles, try with newsapi
-        # if len(self.articles_meta) < self.num_articles:
         try:
             newsapi = NewsApiClient(api_key=os.getenv('NEWSAPI_KEY'))
 
-            articles = newsapi.get_everything(q=topic,
+            articles = newsapi.get_everything(q=search_term,
                                               sources='abc-news,abc-news-au,associated-press,australian-financial-review,axios,bbc-news,bbc-sport,bloomberg,business-insider,cbc-news,cbs-news,cnn,financial-post,fortune',
                                               from_param=self.last_month,
                                               to=self.today,
@@ -108,8 +71,8 @@ class NewsSpecialist:
             self.api_error += f'NewsAPI error: {e}\n'
             # print(f'NewsAPI error: {e}')
 
-    def get_top_article(self, topic, chat_history):
-        self.get_articles_meta(topic)
+    def get_top_article(self, search_term):
+        self.get_articles_meta(search_term)
         # print(self.articles_meta)
         num_articles = len(self.articles_meta)
         if num_articles > 0:
@@ -122,36 +85,27 @@ class NewsSpecialist:
                 formatted_articles_meta += f'{title} ({date} UTC)\n{url}\n'
                 formatted_articles_meta += f'Summary: {summary}\n\n'
             specialist_prompt_template = textwrap.dedent(f'''\
-                You are a news specialist. You have been asked to select one article in the language {self.cfg.LANGUAGE}
-                from this list that is most relevant to the context of this conversation.
+                You are a news specialist. The following chat history includes a request for news.
+                {self.chat_history}
 
-                Chat Context:
-                {chat_history}
+                You need to decide if any of theese articles are relevant to the chat history. Only
+                consider articles in the {self.cfg.LANGUAGE} language.
+
+                If none of the articles are relevant, reply with "None of the articles are relevant."
+                Otherwise, reply with the title of the most relevant article and the url.
 
                 Articles:
                 {formatted_articles_meta}
 
-                Don't preface your reply or include anything other than a one sentence summary of the article and the url.
+                Don't preface your reply or include anything other than summary of the article and the url.
+                **If none of the articles are relevant, reply with "None of the articles are relevant.**"
                 ''')
 
-            prompt = PromptTemplate.from_template(specialist_prompt_template)
             llm = ChatOllama(model=self.cfg.NEWS_MODEL)
 
-            agent = (
-                {
-                    'topic': lambda x: x['topic'],
-                    'language': lambda x: x['language'],
-                    'articles_meta': lambda x: x['articles_meta'],
-                }
-                | prompt
-                | llm
-            )
+            print(f'Specialist prompt: {specialist_prompt_template}')
 
-            result = agent.invoke({
-                'topic': topic,
-                'language': self.cfg.LANGUAGE,
-                'articles_meta': self.articles_meta,
-            })
+            result = llm.invoke(specialist_prompt_template)
             print(f'Response from get_top_article: {result.content}')
             return result.content
 
@@ -161,13 +115,6 @@ class NewsSpecialist:
     def retrieve_article_text(self, article):
         # Regex pattern for extracting URLs
         url_pattern = r'(https?://[^\s]+)'
-
-        # Regex for title: Extract everything before the URL
-        match = re.search(url_pattern, article)
-        if match:
-            title = article[:match.start()].strip()  # Get everything before the URL
-        else:
-            title = "No title found"
 
         # Find all URLs in the text
         url = re.findall(url_pattern, article)
@@ -194,7 +141,7 @@ class NewsSpecialist:
         else:
             article_text = None
 
-        return url, title, article_text
+        return url, article_text
     
     def summarize_article(self, article_text):
         ''' Summarizes the article text using LLM '''
@@ -208,20 +155,42 @@ class NewsSpecialist:
 
             Three Paragraph Summary:
             ''')
-        prompt = PromptTemplate.from_template(article_summary_prompt_template)
         llm = ChatOllama(model=self.cfg.NEWS_MODEL)
 
-        agent = (
-            {
-                'article_text': lambda x: x['article_text'],
-            }
-            | prompt
-            | llm
-        )
-
-        result = agent.invoke({
-            'article_text': article_text,
-        })
-        print(f'\nResponse from summarize_article:\n{result.content}')
+        result = llm.invoke(article_summary_prompt_template)
+        print(f'Response from summarize_article: {result.content}')
         return result.content
 
+    def get_news_summary_workflow(self, chat_history):
+        ''' Get the URL and summary of the top article '''
+        attempts = 0
+        article_summary = None
+        url = None
+
+        while attempts < 3 and not article_summary:
+            # get search term
+            search_term = self.get_search_term()
+            print(f'Search term: {search_term}')
+
+            # search for articlee metadata and select most relevant
+            top_article = self.get_top_article(search_term)
+            print(f'Top article: {top_article}')
+
+            if top_article is None:
+                break
+
+            # retrieve the article text by scraping the url
+            url, article_text = self.retrieve_article_text(top_article)
+            print(f'URL: {url}')
+            print(f'Article text: {article_text}')
+
+            # summarize the article
+            article_summary = self.summarize_article(article_text)
+            print(f'Article summary: {article_summary}')
+
+            if article_summary is not None:
+                break
+            
+            attempts += 1
+
+        return url, article_summary
