@@ -6,6 +6,8 @@ import faiss
 import numpy as np
 import os
 from sentence_transformers import SentenceTransformer
+from langchain_ollama import ChatOllama
+import textwrap
 
 def with_connection(func):
     '''Decorator to create a new connection and cursor for each function call.'''
@@ -245,14 +247,24 @@ class CoreMemory:
             chat = self.format_chat_history(chunk, chan_id)
             formatted_chunk_string = chat.formatted_long_history
 
-            # generate chunk embeddings
-            embeddings = self.vector_model.encode(formatted_chunk_string)
+            # summarize chunk
+            llm = ChatOllama(model=self.cfg.SUMMARY_MODEL)
+            summary_prompt = self.cfg.SUMMARIZE_CHAT_PROMPT.format(formatted_chunk_string=formatted_chunk_string)
+            result = llm.invoke(summary_prompt)
+            summary = result.content
+            print(f'Summary: {summary}')
+
+            # generate chunk embeddings of summarized text
+            text_to_embed = summary if self.cfg.SUMMARIZE_CHAT_HISTORY_EMBEDDINGS else formatted_chunk_string
+
+            # generate chunk embeddings of full text
+            embeddings = self.vector_model.encode(text_to_embed)
             embeddings = np.array(embeddings, dtype=np.float32).reshape(1, -1)
 
             # check current index size to use as chunk locator
             index_locator = self.chat_vector_index.ntotal
 
-            # add embeddings to vector index
+            # add chunk embeddings to vector index
             self.chat_vector_index.add(embeddings)
 
             # update vector store index locator in database
@@ -265,12 +277,12 @@ class CoreMemory:
                 chat_values = (index_locator, chan_id, row[0])
                 cursor.execute(update_query, chat_values)
 
-            # add chunk to vector memory
+            # add chunk text to vector memory
             insert_query = """
             INSERT INTO chat_vector_memory (chunk_idx, chunk_text, start_time, end_time)
             VALUES (?, ?, ?, ?)
             """
-            vector_values = (index_locator, formatted_chunk_string, start_time, end_time)
+            vector_values = (index_locator, text_to_embed, start_time, end_time)
             cursor.execute(insert_query, vector_values)
 
         # write index attribute to file
@@ -441,6 +453,9 @@ class ChatHistory:
         
         # get short history which will be used as current query for agent to respond to
         self.short_history = self.long_history[-self.cfg.SHORT_HISTORY_LENGTH:]
+
+        # get history to be used for vector search of long term memory
+        self.vector_search_history = self.long_history[-self.cfg.VECTOR_SEARCH_LENGTH:]
 
         # format histories to be LLM friendly
         self.formatted_long_history = chat_text + '\n'.join(self.long_history) + '\n'
