@@ -5,7 +5,7 @@ served by API to closed-source models or locally through Ollama.
 # Novel Response Method
 To simulate a more human interaction, the agent does not respond once per prompt. Instead new messages are added to the
 chat history by an independent thread and can be done while the agent is processing response. The model thread checks the recent
-chat history every second and is prompted to respond to the context of the last few messages.
+chat history every second and is prompted to respond to the context of the last few messages. This opens the door for the LLM to initiate a conversation by programmed scheduling.
 
 # Short Term Memory
 Chat messages are stored in a SQLite db chat_history table. User can customize the length of the tail to be included in the prompt to the agent.
