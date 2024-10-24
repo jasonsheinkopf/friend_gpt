@@ -329,3 +329,32 @@ You can read the full article here: https://www.businessinsider.com/tsmc-making-
 ```
 
 # Getting Started
+* Clone this repo
+* Create a Discord bot
+    * [Discord developer portal](https://discord.com/developers/docs/intro)
+    * Applications > New Application
+        * Bot
+        * public bot ON (to make this private, you will have to do your own research)
+        * OAUTH2 ON
+        * presence intent ON
+        * server members ON
+        * message content intent ON
+        * send messages (text permissions) CHECK
+    * Reset TOKEN and copy it to a safe place
+* Get a News API key
+    * Create an account at [News API](https://newsapi.org/)
+    * copy your NEWSAPI_KEY
+* To use Open-AI
+    * Create an account and get your OPENAI_API_KEY AT [OpenAI](https://platform.openai.com/chat-completions)
+* To use open source models
+    * Download [Ollama](https://platform.openai.com/chat-completions)
+    * In your termainal, get the models you want to use, for example:
+        * `pull llama3.1:8b`
+        * `pull gemma2: 9b`
+        * `pull phi3:latest`
+* Create `.env` file
+    * DISCORD_TOKEN = "MTI4Nj"
+    * NEWSAPI_KEY = '8c0c0'
+    * OPENAI_API_KEY = 'sk-pr
+* Modify `config/defaults.py to include your available models
+* To try it out `python app.py`
