@@ -357,4 +357,5 @@ You can read the full article here: https://www.businessinsider.com/tsmc-making-
     * NEWSAPI_KEY = '8c0c0'
     * OPENAI_API_KEY = 'sk-pr
 * Modify `config/defaults.py to include your available models
+* Create a virtual environment from `requirements.txt`
 * To try it out `python app.py`
