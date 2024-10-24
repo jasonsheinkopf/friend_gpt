@@ -53,10 +53,34 @@ def search_news(agent, tool_input: str) -> str:
         url = top_article['url']
 
         response = f'''
-        Success. Now respond with the url {url} by itself on the first line
-        And on the second line a summary of the article: {summary}'''
+        Success. Now, in the first line, respond in a fashion consistent with the agent's personality
+        to the article summary. {summary}.
+        On the second line, provide the URL to the full article: {url}
+        '''
 
     except Exception as e:
         response = f'Error searching for news: {e}'
+
+    return response
+
+
+# @tool
+# def tool_template(agent, tool_input: str) -> str:
+#     '''
+#     To add a tool, copy this template and modify it as needed. It just take `agent` and `tool_input` as arguments.
+#     The agent will use the contents of this docstring to decide wheter to use this tool and which arguments to pass.
+#     The response will be returned to the agent, who will have an opportunity to consider it then respond to the user.
+#     The agent will response after the tool is used and is not allowed to consider additional tool before response.
+#     '''
+#     a = 3
+#     b = 5
+#     c = a + b
+#     try:
+#         response = f'''
+#         Success! The tool worked. Now response to the user with the result. that {a} + {b} = {c}.
+#         '''
+
+#     except Exception as e:
+#         response = f'Error searching for news: {e}'
 
     return response
